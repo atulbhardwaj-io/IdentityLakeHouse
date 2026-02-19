@@ -1,0 +1,151 @@
+# Enrollment EDA Review (14-Step Revision Guide)
+
+Source notebook reviewed: `scripts/EDA/panda_eda/data_profiling_enrollment.ipynb`
+
+Purpose:
+- Quick revision notes for future interview/project recap.
+- What you covered in EDA.
+- What a data engineer should learn from each step.
+
+---
+
+## Step 1: Business Understanding
+What you covered:
+- Defined row meaning: enrollment counts by `date + location`.
+- Clarified event and measures (`age_0_5`, `age_5_17`, `age_18_greater`).
+
+Data engineer learning:
+- Always define business meaning before touching transformations.
+
+## Step 2: Structural Profiling
+What you covered:
+- Shape, columns, info, head/sample, describe.
+- Initial schema and datatype inspection.
+
+Data engineer learning:
+- Structural profiling is the first guardrail against schema drift.
+
+## Step 3: Grain Identification
+What you covered:
+- Natural key evaluated as: `date, state, district, pincode`.
+- Duplicate checks at row-level and key-level.
+
+Data engineer learning:
+- Grain is the base contract for all downstream modeling.
+
+## Step 4: Duplicate Analysis
+What you covered:
+- Exact duplicate count and key-duplicate count.
+- Duplicate sample review and de-duplication flow.
+
+Data engineer learning:
+- You should inspect duplicate examples, not just counts.
+
+## Step 5: Missing Value Analysis
+What you covered:
+- Null counts and null percentages.
+- Empty-string checks and combined null/empty diagnostics.
+
+Data engineer learning:
+- Missingness = null + blanks + malformed placeholders.
+
+## Step 6: Data Type & Format Validation
+What you covered:
+- Date parsing validation.
+- Pincode format/length checks.
+- Object column review.
+
+Data engineer learning:
+- Format checks prevent silent quality errors in pipelines.
+
+## Step 7: Domain Validation
+What you covered:
+- Negative value checks and date range checks.
+- District/state cleaning logic and domain sanity checks.
+- Karnataka/UP district inconsistency observations.
+
+Data engineer learning:
+- Domain validation should map to real-world constraints.
+
+## Step 8: Cardinality & Distribution
+What you covered:
+- Unique states, districts, pincodes, dates.
+- Districts-per-state and volume distribution checks.
+
+Data engineer learning:
+- Cardinality drives partitioning/indexing/storage strategy.
+
+## Step 9: Cross-Column Consistency
+What you covered:
+- `pincode -> district` stability checks.
+- `district -> state` stability checks.
+- Conflict extraction and diagnostics.
+
+Data engineer learning:
+- Referential consistency is mandatory before conformed modeling.
+
+## Step 10: Measures vs Dimensions Classification
+What you covered:
+- Explicit column classification (time/dimension/measure/derived).
+
+Data engineer learning:
+- Clear column roles reduce ambiguity in fact/dimension design.
+
+## Step 11: Outlier Detection (Advanced)
+What you covered:
+- `total_enrollment` derived.
+- Z-score and extreme-value scans.
+
+Data engineer learning:
+- Outliers may indicate either data defects or true business events.
+
+## Step 12: Trend & Time Analysis (Advanced)
+What you covered:
+- Monthly trend (`date -> month`) analysis.
+- Spike/drop checks and time-based comparisons.
+
+Data engineer learning:
+- Time trends convert static profiling into operational insight.
+
+## Step 13: Data Quality Risk Summary
+What you covered:
+- Summary snapshots (`rows`, duplicates, null totals, unique states).
+- Quality snapshot/risk indicators and readiness checks.
+
+Data engineer learning:
+- Always end EDA with a compact decision-oriented summary.
+
+## Step 14: Documentation
+What you covered:
+- Final findings documentation:
+  - Grain
+  - Natural key
+  - Identified issues
+  - Data inconsistencies
+  - Expected fixes
+  - Modeling direction
+- Report artifact generation.
+
+Data engineer learning:
+- EDA is incomplete without written, reproducible documentation.
+
+---
+
+## Current Completion Status
+- 14-step framework: Covered.
+- Advanced checks: Included (trend, anomalies, consistency, KPI/rule-style outputs).
+- Revision recommendation: Keep one canonical notebook path and one canonical report output path.
+
+## Minimum Outputs You Should Preserve
+- `final_eda_summary_metrics.csv`
+- `final_eda_risk_register.csv`
+- `final_eda_rule_status.csv`
+- `final_eda_findings.md`
+
+## Fast Revision (Interview Mode)
+1. Explain grain and natural key first.
+2. Explain top 3 quality issues found.
+3. Explain what you cleaned and why.
+4. Explain cross-table consistency checks.
+5. Explain final modeling direction and quality gates.
+
