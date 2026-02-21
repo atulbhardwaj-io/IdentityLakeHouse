@@ -1,0 +1,20 @@
+# Large generated synthetic data (temporary local artifacts)
+synthetic_data/synthetic/*.csv
+synthetic_data/synthetic/*.parquet
+synthetic_data/synthetic/*.delta
+synthetic_data/synthetic/*.tmp
+synthetic_data/synthetic/*.tmp.csv
+
+# Also ignore master/reference files in synthetic workspace
+synthetic_data/synthetic/*.xlsx
+synthetic_data/reference/*.csv
+
+# Legacy synthetic output location in repo
+scripts/EDA/panda_eda/data/synthetic/*.csv
+scripts/EDA/panda_eda/data/synthetic/*.parquet
+scripts/EDA/panda_eda/data/synthetic/*.delta
+
+# Large API source datasets (enrollment/demographic/biometric)
+data/api_data_aadhar_biometric/**/*.csv
+data/api_data_aadhar_demographic (1)/**/*.csv
+data/api_data_aadhar_enrolment/**/*.csv
