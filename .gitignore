@@ -5,10 +5,9 @@ synthetic_data/synthetic/*.delta
 synthetic_data/synthetic/*.tmp
 synthetic_data/synthetic/*.tmp.csv
 
-# Keep real/master reference files tracked
-!synthetic_data/synthetic/District_Masters.csv
-!synthetic_data/synthetic/District_Masters.xlsx
-!synthetic_data/reference/state_district_master.csv
+# Also ignore master/reference files in synthetic workspace
+synthetic_data/synthetic/*.xlsx
+synthetic_data/reference/*.csv
 
 # Legacy synthetic output location in repo
 scripts/EDA/panda_eda/data/synthetic/*.csv
