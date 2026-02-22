@@ -15,7 +15,7 @@ random_gen = random.Random(SEED)
 
 out_dir = Path('synthetic_data/synthetic')
 out_dir.mkdir(parents=True, exist_ok=True)
-out_file = out_dir / 'population_raw.csv'
+out_file = out_dir / 'population_raw2.csv'
 
 district_master_file = Path('synthetic_data/synthetic/District_Masters.csv')
 

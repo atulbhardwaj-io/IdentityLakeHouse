@@ -77,6 +77,190 @@ Ingest raw data safely with lineage and replay support.
 - Append-only Bronze tables
 - Ingestion audit table
 
+## Bronze Layer Detailed Plan (Spark + Delta Only)
+
+This section is the execution blueprint for Bronze implementation.
+Focus is only Bronze, with Apache Spark + Delta Lake.
+
+### Phase 1: Environment Setup
+#### Concepts Used
+- SparkSession
+- Spark configuration
+- Delta extensions
+- Dependency management
+
+#### Why This Matters
+- Spark must be configured to run distributed jobs.
+- Delta support must be enabled for ACID transactions.
+- If setup is wrong, all downstream Bronze steps fail.
+
+#### Outcome
+- Spark starts successfully.
+- Delta engine is active.
+- You can create Delta tables.
+
+### Phase 2: Project Structure
+#### Concepts Used
+- Data lake architecture
+- Separation of concerns
+- Layered storage design
+
+#### Why This Matters
+- Raw files, Bronze data, and checkpoints must stay isolated.
+- Clean structure reduces data corruption and debugging effort.
+- This is required for production-grade maintenance.
+
+#### Outcome
+- Clear folder hierarchy.
+- Easy debugging and pipeline operations.
+- Production-ready organization model.
+
+### Phase 3: Reading Raw Data
+#### Concepts Used
+- DataFrame API
+- File-based ingestion
+- Explicit schema application
+- Lazy evaluation
+
+#### Why This Matters
+- Spark reads raw CSV into distributed DataFrames.
+- Lazy execution builds optimized plans before actual computation.
+- Explicit schemas prevent drift and unexpected type errors.
+
+#### Outcome
+- Raw files converted to distributed DataFrames.
+- Data is ready for Bronze transformations.
+- Ingestion process is deterministic and scalable.
+
+### Phase 4: Adding Metadata Columns
+#### Concepts Used
+- Column transformations
+- Spark SQL functions
+- Metadata enrichment
+- Data lineage tracking
+
+#### Why This Matters
+- Bronze must capture ingestion context for auditing and replay.
+- Required lineage fields: source file, ingest timestamp, batch id.
+- Metadata enables root-cause analysis for bad loads.
+
+#### Outcome
+- Data becomes traceable.
+- Bronze gets governance-ready metadata.
+- Auditability is built into every load.
+
+### Phase 5: Writing as Delta
+#### Concepts Used
+- Delta transaction log
+- ACID guarantees
+- Append/overwrite modes
+- Distributed writes
+
+#### Why This Matters
+- Delta protects data from corruption and partial writes.
+- ACID is mandatory for government-scale trust.
+- Write mode discipline controls safe reruns.
+
+#### Outcome
+- Bronze Delta tables are physically created.
+- ACID protection is active.
+- Storage is scalable and replay-friendly.
+
+### Phase 6: Register as SQL Table
+#### Concepts Used
+- Spark SQL
+- Metastore/catalog registration
+- Logical table abstraction
+
+#### Why This Matters
+- Consumers should query tables by name, not file paths.
+- SQL access is essential for analysts and BI workflows.
+- Catalog registration formalizes table governance.
+
+#### Outcome
+- Tables are queryable via SQL (`bronze.<table_name>`).
+- Storage and query abstraction are decoupled.
+- Lakehouse access is standardized.
+
+### Phase 7: Partitioning
+#### Concepts Used
+- Physical partitioning
+- Query pruning
+- Performance optimization
+
+#### Why This Matters
+- Partitioning reduces scanned data for filtered queries.
+- Better performance and lower compute cost at scale.
+- Enables sustainable growth for high-volume pipelines.
+
+#### Outcome
+- Faster Bronze queries.
+- Scalable storage layout.
+- Better runtime efficiency.
+
+### Phase 8: Re-runnability Design
+#### Concepts Used
+- Idempotent design patterns
+- Replay-safe ingestion
+- Controlled append strategy
+
+#### Why This Matters
+- Pipelines must recover from failures without manual cleanup.
+- Reprocessing should not corrupt historical data.
+- Reliable reruns are core production behavior.
+
+#### Outcome
+- Safe restart capability.
+- Stable ingestion behavior under failures.
+- Higher reliability in operations.
+
+### Phase 9: Validation
+#### Concepts Used
+- Row-count verification
+- Schema validation
+- Metadata validation
+- Delta read-back checks
+
+#### Why This Matters
+- Every load must be validated before promoting trust.
+- Confirms data presence, schema correctness, and metadata completeness.
+- Prevents silent failures entering Silver layer.
+
+#### Outcome
+- Verified Bronze correctness.
+- Trusted ingestion layer.
+- Ready handoff to Silver processing.
+
+### Bronze Final Deliverable
+- Distributed raw storage in Delta format
+- ACID-protected Bronze tables
+- Metadata and lineage for every load
+- Partitioned scalable design
+- SQL-queryable Bronze catalog tables
+- Replayable ingestion pattern
+
+### Bronze Skills Learned
+- Spark ingestion and DataFrame operations
+- Schema management and transformations
+- Delta Lake transactional storage
+- Partition strategy and performance thinking
+- SQL + catalog integration
+- Governance and lineage foundations
+- Production data engineering mindset
+
+### Current Bronze Commands (This Repo)
+Use project venv Python:
+
+```powershell
+.\venv\Scripts\python.exe scripts/bronze_layer/build_bronze_synthetic.py --tables district_scheme_payment_raw --mode overwrite
+```
+
+Run all synthetic raw tables:
+
+```powershell
+.\venv\Scripts\python.exe scripts/bronze_layer/build_bronze_synthetic.py --tables all --mode overwrite
+```
+
 ## Stage 4: Silver Layer (Clean + Contract-Enforced)
 ### Objectives
 Standardize and trust data for downstream modeling.

@@ -18,3 +18,11 @@ scripts/EDA/panda_eda/data/synthetic/*.delta
 data/api_data_aadhar_biometric/**/*.csv
 data/api_data_aadhar_demographic (1)/**/*.csv
 data/api_data_aadhar_enrolment/**/*.csv
+
+
+
+data/
+scripts/bronze_layer/README_BRONZE_SYNTHETIC.md
+scripts/bronze_layer/__pycache__/
+scripts/bronze_layer/build_bronze_synthetic.py
+synthetic_data/scripts/generate_district_scheme_payment_raw.py
