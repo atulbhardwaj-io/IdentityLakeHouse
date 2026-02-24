@@ -1,28 +1,54 @@
-# Large generated synthetic data (temporary local artifacts)
+# ------------------------------
+# Python environment and caches
+# ------------------------------
+venv/
+**/__pycache__/
+*.py[cod]
+*.pyo
+
+# ------------------------------
+# Notebook/runtime caches
+# ------------------------------
+.ipynb_checkpoints/
+
+# ------------------------------
+# Spark / Delta local artifacts
+# ------------------------------
+spark-warehouse/
+metastore_db/
+derby.log
+docker/spark-events/
+**/_delta_log/
+*.crc
+
+# ------------------------------
+# Generated data lake outputs
+# ------------------------------
+data/bronze/
+data/bronze_table/
+data/silver/
+data/gold/
+data/checkpoints/
+
+# ------------------------------
+# Synthetic generated datasets
+# ------------------------------
 synthetic_data/synthetic/*.csv
 synthetic_data/synthetic/*.parquet
 synthetic_data/synthetic/*.delta
 synthetic_data/synthetic/*.tmp
 synthetic_data/synthetic/*.tmp.csv
-
-# Also ignore master/reference files in synthetic workspace
 synthetic_data/synthetic/*.xlsx
 synthetic_data/reference/*.csv
 
-# Legacy synthetic output location in repo
-scripts/EDA/panda_eda/data/synthetic/*.csv
-scripts/EDA/panda_eda/data/synthetic/*.parquet
-scripts/EDA/panda_eda/data/synthetic/*.delta
+# ------------------------------
+# Large API raw source datasets
+# ------------------------------
+data/api_data_aadhar_biometric*/**/*.csv
+data/api_data_aadhar_demographic*/**/*.csv
+data/api_data_aadhar_enrolment*/**/*.csv
 
-# Large API source datasets (enrollment/demographic/biometric)
-data/api_data_aadhar_biometric/**/*.csv
-data/api_data_aadhar_demographic (1)/**/*.csv
-data/api_data_aadhar_enrolment/**/*.csv
-
-
-
-data/
-scripts/bronze_layer/README_BRONZE_SYNTHETIC.md
-scripts/bronze_layer/__pycache__/
-scripts/bronze_layer/build_bronze_synthetic.py
-synthetic_data/scripts/generate_district_scheme_payment_raw.py
+# ------------------------------
+# Generated EDA report artifacts
+# ------------------------------
+scripts/EDA/consistency_reports/*.csv
