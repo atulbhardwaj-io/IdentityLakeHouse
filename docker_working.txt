@@ -1,0 +1,104 @@
+==============================
+SPARK CLUSTER STOP & RESTART GUIDE
+Project: IdentityLakehouse
+==============================
+
+---------------------------------
+STOP WORK (TODAY)
+---------------------------------
+
+Step 1:
+Go to docker folder
+
+cd IdentityLakehouse/docker
+
+Step 2:
+Stop cluster
+
+docker compose down
+
+DONE 
+
+
+---------------------------------
+START AGAIN (TOMORROW)
+---------------------------------
+
+Step 1:
+Go to docker folder
+
+cd IdentityLakehouse/docker
+
+Step 2:
+Start cluster
+
+docker compose up -d
+
+Step 3:
+Check containers
+
+docker ps
+
+You must see:
+spark-master
+spark-worker-1
+spark-worker-2
+spark-history
+
+Step 4:
+Check Spark UI
+
+Open browser:
+http://localhost:8080
+
+Workers must be visible.
+
+Step 5:
+Check History Server
+
+Open browser:
+http://localhost:18080
+
+Previous job logs should appear.
+
+Step 6:
+Run Spark Job
+
+docker exec -it spark-master bash
+
+Then inside container:
+
+/opt/spark/bin/spark-submit \
+--master spark://spark-master:7077 \
+--packages io.delta:delta-spark_2.12:3.0.0 \
+--conf spark.jars.ivy=/tmp/.ivy2 \
+/app/scripts/bronze_layer/main.py
+
+
+---------------------------------
+VERIFY DELTA
+---------------------------------
+
+Check folder:
+
+IdentityLakehouse/data/bronze_table
+
+Must contain:
+_delta_log
+part-00000...
+
+If _delta_log exists → Delta is working.
+
+
+---------------------------------
+IF SOMETHING BREAKS
+---------------------------------
+
+docker compose down -v
+docker compose up -d
+
+(This resets cluster completely)
+
+---------------------------------
+
+END OF GUIDE
