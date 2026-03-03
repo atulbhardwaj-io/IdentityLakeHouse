@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from delta import configure_spark_with_delta_pip
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
@@ -159,12 +160,14 @@ TABLE_CONFIGS: dict[str, TableConfig] = {
 
 
 def build_spark(app_name: str) -> SparkSession:
-    return (
+    builder = (
         SparkSession.builder.appName(app_name)
+        .config("spark.driver.memory", "4g")
+        .config("spark.hadoop.io.native.lib.available", "false")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-        .getOrCreate()
     )
+    return configure_spark_with_delta_pip(builder).getOrCreate()
 
 
 def parse_date_col(df: DataFrame, col_name: str) -> DataFrame:

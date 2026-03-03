@@ -52,3 +52,28 @@ data/api_data_aadhar_enrolment*/**/*.csv
 # Generated EDA report artifacts
 # ------------------------------
 scripts/EDA/consistency_reports/*.csv
+
+# ------------------------------
+# Local Spark/Ivy runtime caches
+# ------------------------------
+.ivy2_local/
+.spark_local/
+.tmp/
+
+# ------------------------------
+# Editor temp files
+# ------------------------------
+**/tempCodeRunnerFile.py
+
+# ------------------------------
+# Bronze outputs under scripts/
+# ------------------------------
+scripts/bronze_layer/aadhaar_voter_link_raw/
+scripts/bronze_layer/district_scheme_payment_raw/
+scripts/bronze_layer/population_raw/
+scripts/bronze_layer/scheme_beneficiary_raw/
+scripts/bronze_layer/scheme_master_raw/
+scripts/bronze_layer/voter_registry_raw/
+scripts/bronze_layer/biometric/
+scripts/bronze_layer/demographic/
+scripts/bronze_layer/enrolment/
