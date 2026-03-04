@@ -1,0 +1,29 @@
+docker exec -it spark-master bash
+
+---------------------------------------------------------------------
+
+
+/opt/spark/bin/spark-submit \
+--master spark://spark-master:7077 \
+--packages io.delta:delta-spark_2.12:3.0.0 \
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+/app/scripts/spark/query_demographic_sql.py
+
+
+---------------------------------------------------------------------------------------------------------
+
+
+/opt/spark/bin/spark-sql \
+--packages io.delta:delta-spark_2.12:3.0.0 \
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+
+
+CREATE TABLE demographic_silver
+USING DELTA
+LOCATION '/app/scripts/silver_layer/demographic_clean';
+
+
+
+SELECT * FROM demographic_silver LIMIT 10;
