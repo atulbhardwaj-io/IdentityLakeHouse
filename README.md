@@ -274,23 +274,15 @@ The goal is to ensure that all downstream consumers rely on trustworthy data.
 
 The Silver layer must guarantee:
 
-Standardized schema
-
-Correct data types
-
-Valid domain values
-
-No duplicate keys
-
-No invalid records
-
-Traceable lineage
-
-Controlled incremental processing
-
-Late arriving data support
-
-Measurable data quality
+- Standardized schema
+- Correct data types
+- Valid domain values
+- No duplicate keys
+- No invalid records
+- Traceable lineage
+- Controlled incremental processing
+- Late arriving data support
+- Measurable data quality
 
 ### Silver Layer Implementation Phases
 
@@ -299,13 +291,10 @@ Below are the phases you should implement, what you need to learn, and how to im
 ### Phase 1: Bronze Data Loading
 #### What You Need to Learn
 
-Spark DataFrame API
-
-Reading Delta tables
-
-Distributed dataset processing
-
-Lazy evaluation in Spark
+- Spark DataFrame API
+- Reading Delta tables
+- Distributed dataset processing
+- Lazy evaluation in Spark
 
 #### How to Implement
 
@@ -316,13 +305,10 @@ This phase ensures the Silver pipeline always reads consistent snapshots of raw 
 ### Phase 2: Schema Normalization
 #### What You Need to Learn
 
-Schema design principles
-
-Column selection and ordering
-
-Data modeling basics
-
-Schema drift handling
+- Schema design principles
+- Column selection and ordering
+- Data modeling basics
+- Schema drift handling
 
 #### How to Implement
 
@@ -330,22 +316,18 @@ Define the expected schema for each dataset.
 
 Ensure:
 
-column names are standardized
-
-column order is consistent
-
-unnecessary columns are removed
+- column names are standardized
+- column order is consistent
+- unnecessary columns are removed
 
 The goal is to create a stable schema that never surprises downstream systems.
 
 ### Phase 3: Data Type Validation
 #### What You Need to Learn
 
-Data type systems
-
-Schema enforcement
-
-Validation logic
+- Data type systems
+- Schema enforcement
+- Validation logic
 
 #### How to Implement
 
@@ -353,22 +335,18 @@ Validate that each field conforms to the expected data type.
 
 Examples:
 
-dates must be valid dates
-
-numeric fields must contain numbers
-
-identifiers must follow correct format
+- dates must be valid dates
+- numeric fields must contain numbers
+- identifiers must follow correct format
 
 Records with invalid types must be captured and sent to a quarantine dataset.
 
 ### Phase 4: Data Type Normalization
 #### What You Need to Learn
 
-Schema casting
-
-Data transformation
-
-DataFrame column operations
+- Schema casting
+- Data transformation
+- DataFrame column operations
 
 #### How to Implement
 
@@ -376,22 +354,18 @@ Convert all fields to their canonical data types.
 
 Examples:
 
-date fields -> date
-
-numeric measures -> double or integer
-
-categorical attributes -> string
+- date fields -> date
+- numeric measures -> double or integer
+- categorical attributes -> string
 
 This ensures consistent analytics behavior.
 
 ### Phase 5: Data Contract Enforcement
 #### What You Need to Learn
 
-Data contracts
-
-validation frameworks
-
-business rule enforcement
+- Data contracts
+- validation frameworks
+- business rule enforcement
 
 #### How to Implement
 
@@ -399,22 +373,18 @@ Define rules that guarantee dataset integrity.
 
 Examples:
 
-unique dataset keys
-
-non-negative numeric values
-
-valid identifier formats
+- unique dataset keys
+- non-negative numeric values
+- valid identifier formats
 
 Rows violating rules should be quarantined instead of deleted.
 
 ### Phase 6: Deduplication
 #### What You Need to Learn
 
-Window functions
-
-Record prioritization strategies
-
-Dataset grain definition
+- Window functions
+- Record prioritization strategies
+- Dataset grain definition
 
 #### How to Implement
 
@@ -431,11 +401,9 @@ This prevents incorrect analytical results.
 ### Phase 7: Domain Validation
 #### What You Need to Learn
 
-Domain constraints
-
-categorical data validation
-
-reference data validation
+- Domain constraints
+- categorical data validation
+- reference data validation
 
 #### How to Implement
 
@@ -443,20 +411,17 @@ Ensure fields only contain valid domain values.
 
 Examples:
 
-valid state codes
-
-valid gender values
-
-valid district names
+- valid state codes
+- valid gender values
+- valid district names
 
 Invalid domain values must be isolated in quarantine tables.
 
 ### Phase 8: Null Handling
 #### What You Need to Learn
 
-mandatory field rules
-
-null handling strategies
+- mandatory field rules
+- null handling strategies
 
 #### How to Implement
 
@@ -464,22 +429,18 @@ Identify critical columns that must never be null.
 
 Examples:
 
-date
-
-state
-
-district
-
-pincode
+- date
+- state
+- district
+- pincode
 
 Rows missing mandatory values should be rejected or quarantined.
 
 ### Phase 9: Derived Columns
 #### What You Need to Learn
 
-feature engineering basics
-
-column transformations
+- feature engineering basics
+- column transformations
 
 #### How to Implement
 
@@ -487,22 +448,18 @@ Create standardized derived attributes that simplify analytics.
 
 Examples:
 
-year
-
-month
-
-region groupings
+- year
+- month
+- region groupings
 
 Derived fields improve query performance and analytical usability.
 
 ### Phase 10: Late Arriving Data Handling
 #### What You Need to Learn
 
-event time vs processing time
-
-watermarking
-
-incremental reprocessing strategies
+- event time vs processing time
+- watermarking
+- incremental reprocessing strategies
 
 #### How to Implement
 
@@ -510,8 +467,8 @@ Some records may arrive later than expected.
 
 Example scenario:
 
-Event date: March 1
-Arrival date: March 5
+- Event date: March 1
+- Arrival date: March 5
 
 Solution:
 
@@ -522,30 +479,25 @@ This ensures late data is captured without full table reprocessing.
 ### Phase 11: Audit Columns and Data Freshness
 #### What You Need to Learn
 
-metadata tracking
-
-operational monitoring
+- metadata tracking
+- operational monitoring
 
 #### How to Implement
 
 Add metadata columns that track:
 
-when Silver processing occurred
-
-how old the data is
-
-which pipeline run produced the record
+- when Silver processing occurred
+- how old the data is
+- which pipeline run produced the record
 
 This enables data freshness monitoring and debugging.
 
 ### Phase 12: Quarantine Dataset Management
 #### What You Need to Learn
 
-data governance
-
-error classification
-
-operational monitoring
+- data governance
+- error classification
+- operational monitoring
 
 #### How to Implement
 
@@ -553,22 +505,18 @@ All invalid records should be stored separately rather than discarded.
 
 Each quarantined record should contain:
 
-failure reason
-
-failed rule
-
-pipeline run identifier
+- failure reason
+- failed rule
+- pipeline run identifier
 
 This ensures full traceability of data issues.
 
 ### Phase 13: Writing Silver Tables
 #### What You Need to Learn
 
-distributed write operations
-
-partitioning strategies
-
-Delta Lake storage design
+- distributed write operations
+- partitioning strategies
+- Delta Lake storage design
 
 #### How to Implement
 
@@ -579,34 +527,27 @@ Design partition strategies carefully to ensure efficient queries and scalable s
 ### Phase 14: Data Quality Metrics
 #### What You Need to Learn
 
-data observability
-
-pipeline monitoring
-
-quality scoring systems
+- data observability
+- pipeline monitoring
+- quality scoring systems
 
 #### How to Implement
 
 Track operational metrics such as:
 
-number of records processed
-
-number of valid records
-
-number of quarantined records
-
-number of duplicates removed
+- number of records processed
+- number of valid records
+- number of quarantined records
+- number of duplicates removed
 
 These metrics provide visibility into pipeline health.
 
 ### Phase 15: Incremental Processing
 #### What You Need to Learn
 
-incremental ingestion patterns
-
-watermark tracking
-
-batch processing strategies
+- incremental ingestion patterns
+- watermark tracking
+- batch processing strategies
 
 #### How to Implement
 
@@ -617,9 +558,8 @@ This improves pipeline efficiency and reduces compute cost.
 ### Phase 16: Validation and Reconciliation
 #### What You Need to Learn
 
-data reconciliation techniques
-
-validation strategies
+- data reconciliation techniques
+- validation strategies
 
 #### How to Implement
 
@@ -635,67 +575,43 @@ This ensures pipeline correctness.
 
 By completing this stage you will gain:
 
-Spark data transformation expertise
-
-Data quality engineering
-
-Schema enforcement practices
-
-Distributed data pipeline design
-
-Data governance and lineage tracking
-
-Incremental pipeline architecture
-
-Production-grade data engineering thinking
+- Spark data transformation expertise
+- Data quality engineering
+- Schema enforcement practices
+- Distributed data pipeline design
+- Data governance and lineage tracking
+- Incremental pipeline architecture
+- Production-grade data engineering thinking
 
 ### Spark Concepts You Must Know
 
 To successfully implement this layer you should understand:
 
-Core Concepts
-
-Spark DataFrame API
-
-Spark SQL
-
-Lazy evaluation
-
-Catalyst optimizer
-
-Transformation Concepts
-
-Filtering and transformation operations
-
-Column functions
-
-Aggregations
-
-Advanced Concepts
-
-Window functions
-
-Partitioning strategies
-
-Incremental processing
-
-Distributed writing
+- Core Concepts
+- Spark DataFrame API
+- Spark SQL
+- Lazy evaluation
+- Catalyst optimizer
+- Transformation Concepts
+- Filtering and transformation operations
+- Column functions
+- Aggregations
+- Advanced Concepts
+- Window functions
+- Partitioning strategies
+- Incremental processing
+- Distributed writing
 
 ### Delta Lake Concepts to Learn
 
 Important capabilities to understand:
 
-ACID transactions
-
-Delta transaction log
-
-Time travel
-
-Schema evolution
-
-Merge operations
-
-File optimization and compaction
+- ACID transactions
+- Delta transaction log
+- Time travel
+- Schema evolution
+- Merge operations
+- File optimization and compaction
 
 ### Final Result of the Silver Layer
 
@@ -703,17 +619,17 @@ The Silver layer produces:
 
 Trusted datasets:
 
-silver.enrollment_valid
-silver.demographic_valid
-silver.biometric_valid
+- silver.enrollment_valid
+- silver.demographic_valid
+- silver.biometric_valid
 
 Error datasets:
 
-silver_quarantine.*
+- silver_quarantine.*
 
 Operational metrics:
 
-silver_dq_summary
+- silver_dq_summary
 
 These datasets serve as the trusted foundation for the Gold layer analytics.
 
