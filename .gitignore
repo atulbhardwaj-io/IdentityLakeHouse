@@ -2,6 +2,7 @@
 # Python environment and caches
 # ------------------------------
 venv/
+.venv_spark35/
 **/__pycache__/
 *.py[cod]
 *.pyo
@@ -77,3 +78,9 @@ scripts/bronze_layer/voter_registry_raw/
 scripts/bronze_layer/biometric/
 scripts/bronze_layer/demographic/
 scripts/bronze_layer/enrolment/
+
+# ------------------------------
+# Silver outputs under scripts/
+# ------------------------------
+scripts/silver_layer/*_valid/
+scripts/silver_layer/sql_work/
