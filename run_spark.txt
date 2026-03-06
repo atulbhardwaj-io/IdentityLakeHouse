@@ -2,6 +2,8 @@ docker exec -it spark-master bash
 
 ---------------------------------------------------------------------
 
+?? spark-submit
+
 
 /opt/spark/bin/spark-submit \
 --master spark://spark-master:7077 \
@@ -12,6 +14,8 @@ docker exec -it spark-master bash
 
 
 ---------------------------------------------------------------------------------------------------------
+
+?? spark-sql
 
 
 /opt/spark/bin/spark-sql \
@@ -27,3 +31,34 @@ LOCATION '/app/scripts/silver_layer/demographic_clean';
 
 
 SELECT * FROM demographic_silver LIMIT 10;
+
+---------------------------------------------------------------------------------------------------------
+
+
+ pyspark shell 
+
+/opt/spark/bin/pyspark \
+--master spark://spark-master:7077 \
+--packages io.delta:delta-spark_2.12:3.0.0 \
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+
+---------------------------------------------------------------------------------
+
+Bronze -> Silver (Delta copy + audit columns)
+
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.executor.cores=1 `
+--conf spark.executor.memory=1g `
+--conf spark.cores.max=2 `
+/app/scripts/spark/bronze_to_silver.py `
+--tables all `
+--mode overwrite `
+--run-id run_all_20260307 `
+--register
+
