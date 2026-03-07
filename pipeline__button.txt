@@ -1,0 +1,59 @@
+Pipeline Button (One-Command Runner)
+====================================
+
+File:
+run_pipeline.ps1
+
+Quick Commands
+--------------
+1) Bronze -> Silver (all tables only)
+.\run_pipeline.ps1
+
+2) CSV -> Bronze + Bronze -> Silver
+.\run_pipeline.ps1 -RunCsvToBronze
+
+3) Bronze -> Silver + Aadhaar transform on _test (safe)
+.\run_pipeline.ps1 -RunAadhaarTransform
+
+4) CSV -> Bronze + Bronze -> Silver + Aadhaar transform on _test (safe)
+.\run_pipeline.ps1 -RunCsvToBronze -RunAadhaarTransform
+
+5) CSV -> Bronze + Bronze -> Silver + Aadhaar transform + promote to main
+.\run_pipeline.ps1 -RunCsvToBronze -RunAadhaarTransform -Promote
+
+6) Only Aadhaar transform (skip Bronze->Silver)
+.\run_pipeline.ps1 -SkipBronzeToSilver -RunAadhaarTransform
+
+7) CSV -> Bronze only
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver
+
+
+Validation After Each Command
+=============================
+
+Open shell once:
+docker exec -it spark-master /opt/spark/bin/pyspark --master spark://spark-master:7077 --packages io.delta:delta-spark_2.12:3.0.0 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+
+Use these checks in pyspark prompt (>>>):
+from pyspark.sql import functions as F
+
+For command 1 (Bronze -> Silver):
+silver = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid"); silver.count(); silver.printSchema()
+
+For command 2 (CSV -> Bronze + Bronze -> Silver):
+bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/enrolment"); silver = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid"); bronze.count(), silver.count()
+
+For command 3 (Bronze -> Silver + Aadhaar test transform):
+main_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid"); test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test"); main_df.count(), test_df.count()
+
+For command 4 (CSV -> Bronze + Bronze -> Silver + Aadhaar test transform):
+bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/aadhaar_voter_link_raw"); test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test"); bronze.count(), test_df.count()
+
+For command 5 (Full flow with promote):
+main_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid"); main_df.count(); main_df.select("silver_run_id").distinct().orderBy(F.desc("silver_run_id")).show(5, False)
+
+For command 6 (Only Aadhaar transform):
+test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test"); test_df.count(); test_df.groupBy("date","state","district","pincode").count().filter("count > 1").count()
+
+For command 7 (CSV -> Bronze only):
+bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/enrolment"); bronze.count(); bronze.printSchema()

@@ -37,11 +37,22 @@ SELECT * FROM demographic_silver LIMIT 10;
 
  pyspark shell 
 
+ 
+mkdir -p /tmp/.ivy2/cache /tmp/.ivy2/jars
 /opt/spark/bin/pyspark \
 --master spark://spark-master:7077 \
 --packages io.delta:delta-spark_2.12:3.0.0 \
+--conf spark.jars.ivy=/tmp/.ivy2 \
 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+
+
+to stop :
+ 1 - exit()
+
+ 2 - docker exec -it spark-master /opt/spark/bin/spark-class org.apache.spark.deploy.Client kill spark://spark-master:7077 <app-id>
+
+
 
 ---------------------------------------------------------------------------------
 
@@ -62,3 +73,90 @@ docker exec -it spark-master /opt/spark/bin/spark-submit `
 --run-id run_all_20260307 `
 --register
 
+---------------------------------------------------------------------------------
+
+Safe Silver Edit (use test path first, then promote)
+
+Inside pyspark prompt (>>>), run step by step:
+
+from pyspark.sql import functions as F
+
+# Step 1: Read current Silver table
+base = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid")
+
+# Step 2: Apply changes in memory (example filter)
+changed = base.filter(F.col("pincode").isNotNull())
+
+# Step 3: Write to test table (safe, no change to main table)
+changed.write.format("delta").mode("overwrite").save("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test")
+
+# Step 4: Validate test table
+test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test")
+base.count(), test_df.count()
+test_df.show(5, truncate=False)
+
+# Step 5: Promote test table to main Silver table (this will overwrite main)
+test_df.write.format("delta").mode("overwrite").option("overwriteSchema","true").save("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid")
+
+---------------------------------------------------------------------------------
+
+Continue Work on Existing _test file (iterative changes)
+
+Inside pyspark prompt (>>>), run:
+
+from pyspark.sql import functions as F
+
+# Step 1: Load current test table
+test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test")
+
+# Step 2: Apply next round of changes (example)
+next_df = (
+    test_df
+    .filter(F.col("pincode").isNotNull())
+    .dropDuplicates(["date", "state", "district", "pincode"])
+)
+
+# Step 3: Save back to same _test path
+next_df.write.format("delta").mode("overwrite").option("overwriteSchema","true").save("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test")
+
+# Step 4: Validate updated test table
+test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test")
+test_df.count()
+test_df.show(5, truncate=False)
+
+# Step 5: Promote test table to main Silver table when final
+test_df.write.format("delta").mode("overwrite").option("overwriteSchema","true").save("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid")
+
+---------------------------------------------------------------------------------
+
+Scripted Silver Transform (aadhaar_voter_link) - store logic in code
+
+Run transform on _test table only:
+
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+/app/scripts/silver_layer/transform_aadhaar_voter_link_silver.py `
+--input-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
+--output-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
+--run-id run_001
+
+---------------------------------------------------------------------------------
+
+Promote test changes to main (after validation)
+
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+/app/scripts/silver_layer/transform_aadhaar_voter_link_silver.py `
+--input-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
+--output-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
+--main-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid `
+--run-id run_001 `
+--promote
