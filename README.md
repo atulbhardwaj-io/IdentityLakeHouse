@@ -1,4 +1,10 @@
-﻿# IdentityLakeHouse
+# IdentityLakeHouse
+
+## Need - Data-Driven Government
+In today's digital era, governments generate massive amounts of data across departments such as welfare schemes, agriculture, health, education, and public distribution systems. However, this data is often stored in silos, inconsistent in format, incomplete, and difficult to analyze at scale. Without a unified and structured architecture, it becomes challenging to monitor scheme performance, detect inefficiencies, prevent fund leakage, and make evidence-based policy decisions. A data-driven government requires a scalable system that can ingest raw departmental data, ensure quality and transparency, and transform it into reliable insights for better governance, accountability, and citizen-centric decision-making.
+
+## Project - Lakehouse for Government Data
+To simulate this real-world governance challenge, I am building an end-to-end Lakehouse project using Medallion Architecture (Bronze, Silver, and Gold layers) with Apache Spark and PySpark. The system processes more than 10 lakh rows of raw scheme and beneficiary data through a scalable ETL pipeline. The Bronze layer ingests raw datasets from multiple sources, the Silver layer performs data cleaning, validation, schema enforcement, and transformation, and the Gold layer generates analytics-ready datasets that can support policy evaluation, fund tracking, and performance monitoring. This project strengthens my understanding of distributed data processing, scalable public data systems, and how modern data engineering can empower transparent, efficient, and data-driven governance.
 
 ## Government Identity Lakehouse Platform - Stage-wise Build Plan
 
@@ -741,3 +747,4 @@ Run as a real production service.
 - Enrollment/Demographic/Biometric profiling: Completed
 - Documentation artifacts: Completed
 - Bronze/Silver/Gold production pipeline: Next active build phase
+

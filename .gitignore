@@ -83,4 +83,15 @@ scripts/bronze_layer/enrolment/
 # Silver outputs under scripts/
 # ------------------------------
 scripts/silver_layer/*_valid/
+scripts/silver_layer/*_valid_test/
 scripts/silver_layer/sql_work/
+
+# ------------------------------
+# OS / local env / logs
+# ------------------------------
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+*.log
