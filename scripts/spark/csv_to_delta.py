@@ -32,17 +32,17 @@ def write_delta(df, table_name):
         .mode("overwrite") \
         .save(output_path)
 
-    print(f"✅ {table_name} Delta Table Created")
+    print(f" {table_name} Delta Table Created")
 
 
 # ==========================================
-# 1️⃣ LOAD SYNTHETIC DATA (SKIP District_Masters)
+# 1️ LOAD SYNTHETIC DATA (SKIP District_Masters)
 # ==========================================
 
 synthetic_folder = "/app/synthetic_data/synthetic"
 skip_files = ["district_masters.csv"]  # case-insensitive safe
 
-print("🚀 Processing Synthetic Data...")
+print(" Processing Synthetic Data...")
 
 for file in os.listdir(synthetic_folder):
 
@@ -60,10 +60,10 @@ for file in os.listdir(synthetic_folder):
 
 
 # ==========================================
-# 2️⃣ LOAD DEMOGRAPHIC DATA (COMBINED FILE)
+# 2️ LOAD DEMOGRAPHIC DATA (COMBINED FILE)
 # ==========================================
 
-print("🚀 Processing Demographic Data...")
+print(" Processing Demographic Data...")
 
 demographic_df = spark.read \
     .option("header", True) \
@@ -74,10 +74,10 @@ write_delta(demographic_df, "demographic")
 
 
 # ==========================================
-# 3️⃣ LOAD ENROLMENT DATA (COMBINED FILE)
+# 3️ LOAD ENROLMENT DATA (COMBINED FILE)
 # ==========================================
 
-print("🚀 Processing Enrolment Data...")
+print(" Processing Enrolment Data...")
 
 enrolment_df = spark.read \
     .option("header", True) \
@@ -88,10 +88,10 @@ write_delta(enrolment_df, "enrolment")
 
 
 # ==========================================
-# 4️⃣ LOAD BIOMETRIC DATA (COMBINED FILE)
+# 4️ LOAD BIOMETRIC DATA (COMBINED FILE)
 # ==========================================
 
-print("🚀 Processing Biometric Data...")
+print(" Processing Biometric Data...")
 
 biometric_df = spark.read \
     .option("header", True) \
@@ -103,4 +103,4 @@ write_delta(biometric_df, "biometric")
 
 spark.stop()
 
-print("🎉 ALL DELTA TABLES CREATED SUCCESSFULLY")
+print(" ALL DELTA TABLES CREATED SUCCESSFULLY")
