@@ -27,6 +27,20 @@ Quick Commands
 7) CSV -> Bronze only
 .\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver
 
+8) Silver -> Silver Test copy (all *_valid to *_valid_test)
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.executor.cores=1 `
+--conf spark.executor.memory=1g `
+--conf spark.cores.max=2 `
+/app/scripts/spark/silver_to_test.py `
+--tables all `
+--mode overwrite
+
 
 Validation After Each Command
 =============================
@@ -57,3 +71,6 @@ test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_vot
 
 For command 7 (CSV -> Bronze only):
 bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/enrolment"); bronze.count(); bronze.printSchema()
+
+For command 8 (Silver -> Silver Test copy):
+main_df = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid"); test_df = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid_test"); main_df.count(), test_df.count()
