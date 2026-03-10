@@ -75,6 +75,28 @@ docker exec -it spark-master /opt/spark/bin/spark-submit `
 
 ---------------------------------------------------------------------------------
 
+Silver (_valid) -> Silver Test (_valid_test) for all tables
+
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.executor.cores=1 `
+--conf spark.executor.memory=1g `
+--conf spark.cores.max=2 `
+/app/scripts/spark/silver_to_test.py `
+--tables all `
+--mode overwrite
+
+Validation (in pyspark >>>):
+silver_main = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid")
+silver_test = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid_test")
+silver_main.count(), silver_test.count()
+
+---------------------------------------------------------------------------------
+
 Safe Silver Edit (use test path first, then promote)
 
 Inside pyspark prompt (>>>), run step by step:
