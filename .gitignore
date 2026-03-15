@@ -18,6 +18,9 @@ venv/
 spark-warehouse/
 metastore_db/
 derby.log
+app/spark-warehouse/
+app/metastore_db/
+app/derby.log
 docker/spark-events/
 **/_delta_log/
 *.crc
@@ -64,6 +67,8 @@ scripts/EDA/consistency_reports/*.csv
 # ------------------------------
 # Editor temp files
 # ------------------------------
+.vscode/
+.idea/
 **/tempCodeRunnerFile.py
 
 # ------------------------------
