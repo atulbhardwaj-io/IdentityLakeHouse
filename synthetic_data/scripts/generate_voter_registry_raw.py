@@ -65,13 +65,15 @@ columns = [
     'deletions',
     'net_change',
     'turnout_pct_est',
-    'data_source',
+    'source_system',
     'ingest_ts',
+    'batch_id',
 ]
 
 location_count = len(locations)
 month_count = len(months)
 ingest_ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+batch_id = datetime.now(timezone.utc).strftime('voter_registry_%Y%m%dT%H%M%SZ')
 
 with out_file.open('w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
@@ -107,6 +109,7 @@ with out_file.open('w', newline='', encoding='utf-8') as f:
             turnout_pct_est,
             'government_website',
             ingest_ts,
+            batch_id,
         ])
 
         if (i + 1) % 200000 == 0:

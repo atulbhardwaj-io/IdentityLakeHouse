@@ -1,5 +1,6 @@
-﻿from pathlib import Path
+from pathlib import Path
 import csv
+from datetime import datetime, timezone
 
 # Generate scheme_master_raw table with real Indian scheme names
 # Output: synthetic_data/synthetic/scheme_master_raw.csv
@@ -17,6 +18,9 @@ columns = [
     'end_date',
     'eligibility_rule',
     'active_flag',
+    'source_system',
+    'ingest_ts',
+    'batch_id',
 ]
 
 # NOTE:
@@ -64,10 +68,25 @@ scheme_catalog = [
     ('National Health Mission', 'Health', 'General', '2013-05-01', '2035-12-31', 'Public health programme eligibility', 1),
 ]
 
+ingest_ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+batch_id = datetime.now(timezone.utc).strftime('scheme_master_%Y%m%dT%H%M%SZ')
+
 rows = []
 for i, item in enumerate(scheme_catalog, start=1):
     scheme_id = f'SCH{str(i).zfill(4)}'
-    rows.append([scheme_id, item[0], item[1], item[2], item[3], item[4], item[5], item[6]])
+    rows.append([
+        scheme_id,
+        item[0],
+        item[1],
+        item[2],
+        item[3],
+        item[4],
+        item[5],
+        item[6],
+        'government_website',
+        ingest_ts,
+        batch_id,
+    ])
 
 with out_file.open('w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)

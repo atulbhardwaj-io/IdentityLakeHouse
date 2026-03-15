@@ -126,8 +126,9 @@ columns = [
     'beneficiaries_rejected',
     'beneficiaries_disbursed',
     'disbursed_amount',
-    'data_source',
+    'source_system',
     'ingest_ts',
+    'batch_id',
 ]
 
 # Build deterministic cycle pools for full coverage
@@ -136,6 +137,7 @@ location_count = len(locations)
 month_count = len(months)
 
 ingest_ts = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+batch_id = datetime.utcnow().strftime('scheme_beneficiary_%Y%m%dT%H%M%SZ')
 
 with out_file.open('w', newline='', encoding='utf-8') as f:
     writer = csv.writer(f)
@@ -172,6 +174,7 @@ with out_file.open('w', newline='', encoding='utf-8') as f:
             f'{disbursed_amount:.2f}',
             'synthetic_batch',
             ingest_ts,
+            batch_id,
         ])
 
         if (i + 1) % 200_000 == 0:

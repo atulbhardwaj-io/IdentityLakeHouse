@@ -1,6 +1,7 @@
-﻿from pathlib import Path
+from pathlib import Path
 import csv
 import random
+from datetime import datetime, timezone
 
 # -------------------------------------------------------------------
 # Synthetic Generator: population_raw (large fact-like table)
@@ -15,7 +16,7 @@ random_gen = random.Random(SEED)
 
 out_dir = Path('synthetic_data/synthetic')
 out_dir.mkdir(parents=True, exist_ok=True)
-out_file = out_dir / 'population_raw2.csv'
+out_file = out_dir / 'population_raw.csv'
 
 district_master_file = Path('synthetic_data/synthetic/District_Masters.csv')
 
@@ -30,6 +31,9 @@ columns = [
     'age_0_5',
     'age_6_17',
     'age_18_plus',
+    'source_system',
+    'ingest_ts',
+    'batch_id',
 ]
 
 if not district_master_file.exists():
@@ -72,6 +76,8 @@ for year in [2023, 2024]:
 
 location_count = len(locations)
 month_count = len(months)
+ingest_ts = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+batch_id = datetime.now(timezone.utc).strftime('population_%Y%m%dT%H%M%SZ')
 print(f'Total master districts: {len(district_pairs)}')
 print(f'Total location keys (district x pincode): {location_count}')
 
@@ -107,6 +113,9 @@ with out_file.open('w', newline='', encoding='utf-8') as f:
             age_0_5,
             age_6_17,
             age_18_plus,
+            'government_website',
+            ingest_ts,
+            batch_id,
         ])
 
         if (i + 1) % 200_000 == 0:

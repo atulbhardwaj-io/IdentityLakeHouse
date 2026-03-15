@@ -131,14 +131,16 @@ columns = [
     "amount_failed",
     "amount_pending",
     "utilization_pct",
-    "data_source",
+    "source_system",
     "ingest_ts",
+    "batch_id",
 ]
 
 scheme_count = len(schemes)
 location_count = len(locations)
 month_count = len(months)
 ingest_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+batch_id = datetime.now(timezone.utc).strftime("district_scheme_payment_%Y%m%dT%H%M%SZ")
 
 with out_file.open("w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
@@ -179,6 +181,7 @@ with out_file.open("w", newline="", encoding="utf-8") as f:
                 utilization_pct,
                 "government_website",
                 ingest_ts,
+                batch_id,
             ]
         )
 
