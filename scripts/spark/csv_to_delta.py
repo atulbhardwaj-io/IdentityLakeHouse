@@ -27,15 +27,15 @@ BIOMETRIC_CSV = (
 )
 
 PARTITION_COLS_BY_TABLE = {
-    "aadhaar_voter_link_raw": ["date"],
-    "biometric": ["date"],
-    "demographic": ["date"],
-    "district_scheme_payment_raw": ["date"],
-    "enrolment": ["date"],
-    "population_raw": ["date"],
-    "scheme_beneficiary_raw": ["date"],
+    "aadhaar_voter_link_raw": ["partition_year", "partition_month"],
+    "biometric": ["partition_year", "partition_month"],
+    "demographic": ["partition_year", "partition_month"],
+    "district_scheme_payment_raw": ["partition_year", "partition_month"],
+    "enrolment": ["partition_year", "partition_month"],
+    "population_raw": ["partition_year", "partition_month"],
+    "scheme_beneficiary_raw": ["partition_year", "partition_month"],
     "scheme_master_raw": ["active_flag"],
-    "voter_registry_raw": ["date"],
+    "voter_registry_raw": ["partition_year", "partition_month"],
 }
 
 
@@ -72,8 +72,29 @@ def normalize_partition_cols(df, partition_cols: List[str]) -> Tuple[object, Lis
     normalized_df = df
     usable_partition_cols: List[str] = []
 
+    if "partition_year" in partition_cols or "partition_month" in partition_cols:
+        if "date" not in normalized_df.columns:
+            return normalized_df, usable_partition_cols
+
+        normalized_df = normalized_df.withColumn(
+            "date",
+            F.coalesce(
+                F.to_date(F.col("date"), "dd-MM-yyyy"),
+                F.to_date(F.col("date"), "yyyy-MM-dd"),
+                F.col("date").cast("date"),
+            ),
+        )
+
+        if "partition_year" in partition_cols:
+            normalized_df = normalized_df.withColumn("partition_year", F.year(F.col("date")))
+            usable_partition_cols.append("partition_year")
+
+        if "partition_month" in partition_cols:
+            normalized_df = normalized_df.withColumn("partition_month", F.month(F.col("date")))
+            usable_partition_cols.append("partition_month")
+
     for col_name in partition_cols:
-        if col_name not in normalized_df.columns:
+        if col_name in usable_partition_cols or col_name not in normalized_df.columns:
             continue
 
         if col_name.endswith("date") or col_name == "date":

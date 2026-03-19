@@ -205,10 +205,10 @@ Focus is only Bronze, with Apache Spark + Delta Lake.
 - Better runtime efficiency.
 
 #### Current Partition Strategy In This Repo
-- Bronze/Silver fact-style tables partition by `date`
+- Bronze/Silver fact-style tables partition by `partition_year`, `partition_month`
 - `scheme_master_raw` and `scheme_master_raw_valid` partition by `active_flag`
 - Keep partition count low enough to avoid many tiny files
-- Use filters on partition columns to benefit from pruning
+- Keep `date` as the business filter column and derive partition columns from it
 
 Example validation queries:
 
@@ -1953,6 +1953,7 @@ spark.sql("SELECT * FROM gold.fact_demographic LIMIT 10").show(truncate=False)
 ```python
 spark.sql("EXPLAIN FORMATTED SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-01'").show(truncate=False)
 spark.sql("EXPLAIN FORMATTED SELECT * FROM silver.enrolment_valid WHERE date = DATE '2025-03-01'").show(truncate=False)
+spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns").show(truncate=False)
 ```
 
 ### Re-runnability Validation
