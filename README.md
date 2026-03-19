@@ -354,287 +354,390 @@ The Silver layer must guarantee:
 Below are the phases you should implement, what you need to learn, and how to implement them conceptually.
 
 ### Phase 1: Bronze Data Loading
-#### What You Need to Learn
-
+#### Concepts Used
 - Spark DataFrame API
-- Reading Delta tables
+- Delta table reads
 - Distributed dataset processing
 - Lazy evaluation in Spark
 
+#### Why This Matters
+- Silver must always start from trusted Bronze snapshots, not from raw CSV files again.
+- Reading Bronze Delta tables preserves lineage, metadata, and replay behavior already established in Bronze.
+- This creates a clean layer boundary between ingestion and data quality transformation.
+
 #### How to Implement
+- Load Bronze tables from Delta paths or Bronze catalog tables.
+- Treat Bronze as the only source of truth for Silver transformations.
+- Read data at stable table grain before applying any quality or standardization logic.
 
-Load the Bronze tables as Spark DataFrames and treat them as the source input for all Silver transformations.
-
-This phase ensures the Silver pipeline always reads consistent snapshots of raw data.
+#### Outcome
+- Silver pipeline reads from consistent Bronze snapshots.
+- The transformation layer starts from replay-safe Delta inputs.
+- Layer separation is maintained properly.
 
 ### Phase 2: Schema Normalization
-#### What You Need to Learn
-
+#### Concepts Used
 - Schema design principles
 - Column selection and ordering
 - Data modeling basics
 - Schema drift handling
 
+#### Why This Matters
+- Bronze can preserve raw structure, but Silver must be predictable.
+- A stable schema reduces downstream dashboard errors and broken joins.
+- Normalization protects the project from source-side column drift and naming inconsistency.
+
 #### How to Implement
+- Define the expected Silver schema for each dataset.
+- Standardize column names, order, and naming conventions.
+- Remove unnecessary technical fields that do not belong in trusted analytical datasets.
+- Keep only fields needed for quality control, joins, lineage, and downstream analytics.
 
-Define the expected schema for each dataset.
-
-Ensure:
-
-- column names are standardized
-- column order is consistent
-- unnecessary columns are removed
-
-The goal is to create a stable schema that never surprises downstream systems.
+#### Outcome
+- Silver schemas become stable and predictable.
+- Downstream consumers face fewer surprises.
+- Join behavior and documentation become clearer.
 
 ### Phase 3: Data Type Validation
-#### What You Need to Learn
-
+#### Concepts Used
 - Data type systems
 - Schema enforcement
 - Validation logic
+- Bad-record detection
+
+#### Why This Matters
+- Analytics and joins fail when fields carry wrong data types.
+- Type issues often appear silently in raw sources and can corrupt Silver metrics if unchecked.
+- Validating before normalization makes bad records visible and auditable.
 
 #### How to Implement
+- Check whether dates can be parsed correctly.
+- Validate numeric fields for numeric compatibility.
+- Validate identifiers such as pincode and other key columns against expected formats.
+- Separate invalid rows into quarantine instead of forcing them into trusted Silver datasets.
 
-Validate that each field conforms to the expected data type.
-
-Examples:
-
-- dates must be valid dates
-- numeric fields must contain numbers
-- identifiers must follow correct format
-
-Records with invalid types must be captured and sent to a quarantine dataset.
+#### Outcome
+- Invalid type records are identified explicitly.
+- Silver valid datasets contain safer inputs for business logic.
+- Type-related silent failures are reduced.
 
 ### Phase 4: Data Type Normalization
-#### What You Need to Learn
-
+#### Concepts Used
 - Schema casting
 - Data transformation
 - DataFrame column operations
+- Canonical typing
+
+#### Why This Matters
+- Even valid values can remain inconsistent unless normalized into one canonical type.
+- Gold and dashboards should not have to repeatedly interpret multiple date or number formats.
+- Normalization improves join quality, partitioning, and metric consistency.
 
 #### How to Implement
+- Cast validated date fields to `date`.
+- Cast numeric measures to `int` or `double` according to expected business meaning.
+- Keep categorical attributes as standardized strings.
+- Ensure the final Silver schema is the same on every rerun.
 
-Convert all fields to their canonical data types.
-
-Examples:
-
-- date fields -> date
-- numeric measures -> double or integer
-- categorical attributes -> string
-
-This ensures consistent analytics behavior.
+#### Outcome
+- Silver datasets use consistent types across runs.
+- Metrics and filters behave more reliably.
+- Partitioning and downstream modeling become easier.
 
 ### Phase 5: Data Contract Enforcement
-#### What You Need to Learn
-
+#### Concepts Used
 - Data contracts
-- validation frameworks
-- business rule enforcement
+- Validation frameworks
+- Business rule enforcement
+- Trusted data publication
+
+#### Why This Matters
+- Silver is the first layer where data must be explicitly trusted.
+- Contracts define what “good data” means for the project.
+- Without contracts, Silver becomes only slightly cleaned Bronze instead of a reliable analytical layer.
 
 #### How to Implement
+- Define integrity rules for each dataset.
+- Enforce key uniqueness expectations, non-negative measure rules, and identifier format rules.
+- Treat contract violations as failed records and quarantine them with reasons.
+- Keep the valid path and quarantine path clearly separated.
 
-Define rules that guarantee dataset integrity.
-
-Examples:
-
-- unique dataset keys
-- non-negative numeric values
-- valid identifier formats
-
-Rows violating rules should be quarantined instead of deleted.
+#### Outcome
+- Silver validity becomes measurable.
+- Business trust is tied to explicit rules, not assumptions.
+- Promotion to Gold becomes easier to govern.
 
 ### Phase 6: Deduplication
-#### What You Need to Learn
-
+#### Concepts Used
 - Window functions
 - Record prioritization strategies
 - Dataset grain definition
+- Deterministic record selection
+
+#### Why This Matters
+- Duplicate keys distort aggregations and create false KPI values.
+- Silver must protect downstream layers from duplicate-grain records.
+- Deduplication is only correct when the business grain is clearly defined first.
 
 #### How to Implement
+- Define the natural grain per dataset.
+- Example grain for your core population-style datasets:
+  - `(date, state, district, pincode)`
+- Use deterministic selection logic, such as ordering by freshness or source priority.
+- Keep only one surviving row per key and route duplicates into operational review if needed.
 
-Define the unique key of the dataset.
-
-Example grain:
-
-(date, state, district, pincode)
-
-Use deterministic logic to keep only one record per key.
-
-This prevents incorrect analytical results.
+#### Outcome
+- Silver valid tables are unique at intended grain.
+- Downstream aggregations become more trustworthy.
+- Duplicate-driven overcounting is reduced.
 
 ### Phase 7: Domain Validation
-#### What You Need to Learn
-
+#### Concepts Used
 - Domain constraints
-- categorical data validation
-- reference data validation
+- Categorical data validation
+- Reference data validation
+- Controlled vocabularies
+
+#### Why This Matters
+- Even correctly typed values can still be semantically wrong.
+- Domain validation prevents polluted categories such as misspelled states or invalid districts.
+- This is essential for consistent drill-down reporting.
 
 #### How to Implement
+- Validate categorical fields against expected domain values.
+- Use reference mappings or approved value lists where available.
+- Example checks:
+  - valid state labels
+  - valid district values
+  - valid gender or type codes where relevant
+- Send domain failures to quarantine for correction or mapping.
 
-Ensure fields only contain valid domain values.
-
-Examples:
-
-- valid state codes
-- valid gender values
-- valid district names
-
-Invalid domain values must be isolated in quarantine tables.
+#### Outcome
+- Silver dimensions and facts use cleaner business categories.
+- Reporting consistency improves.
+- Cross-table joins become more stable.
 
 ### Phase 8: Null Handling
-#### What You Need to Learn
+#### Concepts Used
+- Mandatory field rules
+- Null handling strategies
+- Completeness checks
+- Data quality gating
 
-- mandatory field rules
-- null handling strategies
+#### Why This Matters
+- Key columns with nulls break joins, deduplication, and KPI grouping.
+- Silver should publish complete records for core analytical keys.
+- Missing required values must be handled deliberately, not ignored.
 
 #### How to Implement
+- Define mandatory columns for each dataset.
+- Example critical fields:
+  - `date`
+  - `state`
+  - `district`
+  - `pincode`
+- Reject or quarantine rows missing mandatory values.
+- Preserve nullability only where the business rules genuinely allow it.
 
-Identify critical columns that must never be null.
-
-Examples:
-
-- date
-- state
-- district
-- pincode
-
-Rows missing mandatory values should be rejected or quarantined.
+#### Outcome
+- Silver valid tables are more complete at business grain.
+- Joins and aggregations fail less often.
+- Data quality expectations become explicit.
 
 ### Phase 9: Derived Columns
-#### What You Need to Learn
+#### Concepts Used
+- Feature engineering basics
+- Column transformations
+- Derived attributes
+- Analytical usability design
 
-- feature engineering basics
-- column transformations
+#### Why This Matters
+- Downstream analytics repeatedly uses the same date and location breakdowns.
+- Derived fields reduce repeated logic in Gold and BI tools.
+- Silver should prepare trusted reusable attributes without turning into a business KPI layer.
 
 #### How to Implement
+- Add standardized derived attributes such as:
+  - `year`
+  - `month`
+  - `month_start`
+  - region grouping or state-level bucket fields if relevant
+- Keep derivations reusable and broadly applicable.
+- Avoid pushing final business KPI formulas into Silver.
 
-Create standardized derived attributes that simplify analytics.
-
-Examples:
-
-- year
-- month
-- region groupings
-
-Derived fields improve query performance and analytical usability.
+#### Outcome
+- Common analytical attributes are available early.
+- Gold logic becomes simpler.
+- Query usability improves.
 
 ### Phase 10: Late Arriving Data Handling
-#### What You Need to Learn
+#### Concepts Used
+- Event time vs processing time
+- Watermarking
+- Incremental reprocessing strategies
+- Rolling correction windows
 
-- event time vs processing time
-- watermarking
-- incremental reprocessing strategies
+#### Why This Matters
+- Source systems do not always deliver records in perfect event-time order.
+- Late data can create missing days or incomplete trend results if Silver only processes the newest partition once.
+- A controlled correction window increases trust without forcing full rebuilds every time.
 
 #### How to Implement
+- Distinguish event date from pipeline processing time.
+- Use rolling reprocessing windows, such as last 7 days, for datasets subject to late arrival.
+- Rebuild only affected partitions instead of full-table refresh where possible.
+- Track which run updated each Silver record.
 
-Some records may arrive later than expected.
-
-Example scenario:
-
-- Event date: March 1
-- Arrival date: March 5
-
-Solution:
-
-Process a rolling historical window during each run (for example last 7 days).
-
-This ensures late data is captured without full table reprocessing.
+#### Outcome
+- Late records are captured more reliably.
+- Silver stays fresher without full reprocessing.
+- Trend analysis becomes less fragile.
 
 ### Phase 11: Audit Columns and Data Freshness
-#### What You Need to Learn
+#### Concepts Used
+- Metadata tracking
+- Operational monitoring
+- Freshness measurement
+- Run traceability
 
-- metadata tracking
-- operational monitoring
+#### Why This Matters
+- Trusted data still needs operational context.
+- Freshness and run metadata help explain when and how a Silver record was produced.
+- This is critical for debugging and handoff into Gold.
 
 #### How to Implement
+- Add audit columns such as:
+  - Silver processed timestamp
+  - pipeline run id
+  - optional freshness indicator or source arrival metadata
+- Ensure these fields are present on every valid Silver record.
+- Use them for troubleshooting, reconciliation, and reporting freshness.
 
-Add metadata columns that track:
-
-- when Silver processing occurred
-- how old the data is
-- which pipeline run produced the record
-
-This enables data freshness monitoring and debugging.
+#### Outcome
+- Silver becomes operationally traceable.
+- Data freshness is measurable.
+- Support and debugging become easier.
 
 ### Phase 12: Quarantine Dataset Management
-#### What You Need to Learn
+#### Concepts Used
+- Data governance
+- Error classification
+- Operational monitoring
+- Invalid-record retention
 
-- data governance
-- error classification
-- operational monitoring
+#### Why This Matters
+- Bad records should not disappear silently.
+- Quarantine preserves the evidence needed for debugging, reporting, and correction.
+- This creates accountability in data quality workflows.
 
 #### How to Implement
+- Store invalid rows in separate quarantine datasets.
+- Include:
+  - failure reason
+  - failed rule name
+  - source record context
+  - pipeline run identifier
+- Keep quarantine queryable for monitoring and remediation.
 
-All invalid records should be stored separately rather than discarded.
-
-Each quarantined record should contain:
-
-- failure reason
-- failed rule
-- pipeline run identifier
-
-This ensures full traceability of data issues.
+#### Outcome
+- Data issues remain traceable.
+- Valid Silver output stays clean.
+- Quality operations become more manageable.
 
 ### Phase 13: Writing Silver Tables
-#### What You Need to Learn
-
-- distributed write operations
-- partitioning strategies
+#### Concepts Used
+- Distributed write operations
+- Partitioning strategies
 - Delta Lake storage design
+- Trusted output publishing
+
+#### Why This Matters
+- Silver outputs must be durable, queryable, and safe for repeated rebuilds.
+- Write design affects downstream performance and operational stability.
+- Delta is the right serving format for trusted intermediate analytics data.
 
 #### How to Implement
+- Write valid Silver datasets as Delta tables.
+- Use partitioning aligned to common access patterns.
+- Register Silver tables in the catalog where appropriate.
+- Use write modes and schema controls that support safe reruns.
 
-Write cleaned and validated datasets as Delta tables in the Silver layer.
-
-Design partition strategies carefully to ensure efficient queries and scalable storage.
+#### Outcome
+- Silver valid tables are stored as reusable Delta assets.
+- Storage is optimized for trusted intermediate consumption.
+- Gold has clean, queryable inputs.
 
 ### Phase 14: Data Quality Metrics
-#### What You Need to Learn
+#### Concepts Used
+- Data observability
+- Pipeline monitoring
+- Quality scoring systems
+- Operational reporting
 
-- data observability
-- pipeline monitoring
-- quality scoring systems
+#### Why This Matters
+- Quality must be measured, not assumed.
+- Metrics help you detect degradation early and explain pipeline behavior over time.
+- This supports incident response and readiness for Gold promotion.
 
 #### How to Implement
+- Track metrics such as:
+  - records processed
+  - valid records
+  - quarantined records
+  - duplicates removed
+  - failed rule counts
+- Persist these metrics in a Silver quality summary dataset or run log.
 
-Track operational metrics such as:
-
-- number of records processed
-- number of valid records
-- number of quarantined records
-- number of duplicates removed
-
-These metrics provide visibility into pipeline health.
+#### Outcome
+- Pipeline health becomes visible.
+- Quality trends can be monitored over time.
+- Promotion decisions become evidence-based.
 
 ### Phase 15: Incremental Processing
-#### What You Need to Learn
+#### Concepts Used
+- Incremental ingestion patterns
+- Watermark tracking
+- Batch processing strategies
+- Controlled backfill logic
 
-- incremental ingestion patterns
-- watermark tracking
-- batch processing strategies
+#### Why This Matters
+- Reprocessing everything on every run becomes expensive as data grows.
+- Silver should evolve toward incremental, operationally efficient behavior.
+- Incremental logic reduces compute cost while preserving correctness.
 
 #### How to Implement
+- Use Bronze ingest metadata or event-time logic to isolate new or changed records.
+- Reprocess only required windows or partitions.
+- Combine incremental logic with late-arrival handling and rerun-safe write behavior.
 
-Instead of reprocessing the entire Bronze dataset, process only newly ingested data.
-
-This improves pipeline efficiency and reduces compute cost.
+#### Outcome
+- Silver runs become more scalable.
+- Compute efficiency improves.
+- Operational runtime becomes more predictable.
 
 ### Phase 16: Validation and Reconciliation
-#### What You Need to Learn
+#### Concepts Used
+- Data reconciliation techniques
+- Validation strategies
+- Cross-layer verification
+- End-to-end correctness checks
 
-- data reconciliation techniques
-- validation strategies
+#### Why This Matters
+- Silver should not silently lose records or misstate quality outcomes.
+- Reconciliation is the proof that your transformation logic preserved control of every input row.
+- This is the final trust checkpoint before Gold consumption.
 
 #### How to Implement
+- Reconcile Bronze input totals with Silver valid plus Silver quarantine totals.
+- Validate key uniqueness, required metadata, and rule-level failure counts.
+- Example concept:
+  - `bronze_records = silver_valid_records + quarantined_records`
+- Treat reconciliation mismatch as a failed pipeline condition.
 
-Verify that no data is lost during processing.
-
-Example validation concept:
-
-bronze_records = silver_valid_records + quarantined_records
-
-This ensures pipeline correctness.
+#### Outcome
+- Silver correctness becomes demonstrable.
+- Trust handoff into Gold is stronger.
+- Silent data loss is less likely.
 
 ### Skills You Will Develop in the Silver Layer
 
@@ -1029,6 +1132,158 @@ Allow secure government users to enter/update records.
 ### Output
 - Transaction-safe data capture platform
 
+## Data Entry Platform Detailed Plan
+
+This section is the execution blueprint for the operational data entry platform.
+Focus is on secure transaction capture, validations, approvals, and controlled operational data updates.
+
+### Phase 1: User Roles and Access Model
+#### Concepts Used 
+- Role-based access control
+- Least privilege
+- Operational workflow design
+- Identity-aware application design
+
+#### Why This Matters
+- Government operational systems should not expose the same actions to every user.
+- Role design protects data quality, approval flow, and auditability.
+- The data entry layer must reflect real-world process ownership.
+
+#### Outcome
+- Clear role definitions such as operator, supervisor, and admin.
+- Access boundaries are established before app development.
+- Operational controls are aligned with platform trust requirements.
+
+### Phase 2: Application Workflow Design
+#### Concepts Used
+- Process modeling
+- Approval workflow
+- State transitions
+- User interaction flow
+
+#### Why This Matters
+- Data entry systems are not only forms; they are controlled business processes.
+- Workflow design determines how submissions are reviewed, approved, rejected, and corrected.
+- A weak workflow can create operational chaos even if storage is technically correct.
+
+#### Outcome
+- Submission lifecycle is clearly defined.
+- Review and approval states are modeled explicitly.
+- Platform behavior becomes predictable for users and operators.
+
+### Phase 3: Transactional Database Design
+#### Concepts Used
+- OLTP modeling
+- Normalized schema design
+- Primary keys and foreign keys
+- ACID transaction design
+
+#### Why This Matters
+- Operational data capture needs transaction safety, not just analytical storage.
+- The application database must support inserts, updates, approvals, and status changes safely.
+- A proper OLTP model protects correctness before data reaches Bronze.
+
+#### Outcome
+- Transaction-safe operational schema is defined.
+- Core entities and relationships are normalized.
+- Database supports reliable application behavior.
+
+### Phase 4: API and Service Layer
+#### Concepts Used
+- REST or service-oriented design
+- Input contracts
+- Server-side validation
+- Business service orchestration
+
+#### Why This Matters
+- Direct client-to-database writes are risky and hard to govern.
+- APIs provide a control point for validation, auditing, and workflow logic.
+- Service boundaries improve maintainability and testing.
+
+#### Outcome
+- Controlled API endpoints for data submission and review.
+- Business validations execute server-side.
+- Platform logic is centralized instead of being scattered across UI code.
+
+### Phase 5: Frontend Data Entry Experience
+#### Concepts Used
+- Form design
+- Validation UX
+- Error handling
+- Task-oriented interface design
+
+#### Why This Matters
+- Bad UI causes bad data, even with strong backend controls.
+- Operators need clear forms, constraints, and error messages to work reliably.
+- Good UX reduces training cost and operational mistakes.
+
+#### Outcome
+- Clean task-focused forms for users.
+- Better validation feedback during entry.
+- Lower error rate at source.
+
+### Phase 6: Validation and Approval Rules
+#### Concepts Used
+- Rule enforcement
+- Multi-step approvals
+- Rejection handling
+- Data quality prevention
+
+#### Why This Matters
+- It is better to prevent bad operational data than to clean it later.
+- Approval controls provide governance before records enter analytical flows.
+- Validation at this stage protects downstream Bronze and Silver quality.
+
+#### Outcome
+- Validation rules are enforced before data is accepted.
+- Approval gates protect critical updates.
+- Invalid or unapproved records are blocked or routed appropriately.
+
+### Phase 7: Audit Logging and Traceability
+#### Concepts Used
+- Change tracking
+- Audit logging
+- Event history
+- User action traceability
+
+#### Why This Matters
+- Government systems require accountability for who changed what and when.
+- Operational corrections and disputes need historical evidence.
+- Audit logs are essential for trust and compliance.
+
+#### Outcome
+- User actions are traceable.
+- Change history is preserved.
+- Support and compliance workflows become easier.
+
+### Phase 8: Integration Into the Lakehouse
+#### Concepts Used
+- Operational-to-analytical data movement
+- CDC thinking
+- Bronze ingestion handoff
+- Event-driven sync patterns
+
+#### Why This Matters
+- The entry platform should feed the analytical pipeline in a controlled way.
+- Integration design determines how operational changes become Bronze events or snapshots.
+- This is the bridge between OLTP and analytics.
+
+#### Outcome
+- Operational platform is connected to Bronze ingestion.
+- Lakehouse and app boundaries remain clean.
+- Future streaming or CDC integration becomes easier.
+
+### Final Result of the Data Entry Platform
+
+The platform produces:
+
+- Secure role-based operational workflows
+- Transaction-safe application database
+- Controlled approvals and validations
+- Audit-ready change history
+- Clean handoff into Bronze ingestion
+
+
 ## Stage 7: Streaming (Kappa) Integration
 ### Objectives
 Use one processing logic for real-time and replay.
@@ -1040,6 +1295,123 @@ Use one processing logic for real-time and replay.
 
 ### Output
 - Live data with replay capability
+
+## Streaming Detailed Plan
+
+This section is the execution blueprint for Kappa-style streaming integration.
+Focus is on event flow, replay safety, checkpointing, and using the same processing logic for both live and historical data.
+
+### Phase 1: Event Source Identification
+#### Concepts Used
+- Event-driven architecture
+- CDC design
+- Streaming source definition
+- Domain event modeling
+
+#### Why This Matters
+- Streaming must begin with clear event producers and event meaning.
+- If source semantics are unclear, replay and downstream trust will fail.
+- Event design determines scalability and analytical usefulness.
+
+#### Outcome
+- Source systems for streaming are identified.
+- Event meaning and ownership are defined.
+- Input contracts for real-time ingestion are clearer.
+
+### Phase 2: Topic and Schema Design
+#### Concepts Used
+- Topic modeling
+- Event schema design
+- Payload contracts
+- Backward compatibility
+
+#### Why This Matters
+- Stable schemas are critical in streaming systems.
+- Topic design affects scalability, replay, and downstream consumption patterns.
+- A bad schema can break consumers continuously instead of only at batch time.
+
+#### Outcome
+- Events are organized into clean topic streams.
+- Streaming payload structure is standardized.
+- Producers and consumers can evolve more safely.
+
+### Phase 3: Streaming Ingestion Into Bronze
+#### Concepts Used
+- Spark Structured Streaming
+- Append mode ingestion
+- Checkpointing
+- Incremental writes
+
+#### Why This Matters
+- Bronze is the natural landing zone for raw event streams.
+- Streaming writes must be durable and replay-safe.
+- This phase creates the real-time entry point into the lakehouse.
+
+#### Outcome
+- Raw events land continuously in Bronze.
+- Checkpoints preserve progress.
+- Streaming and batch Bronze follow the same storage philosophy.
+
+### Phase 4: Watermarking and Late Data Strategy
+#### Concepts Used
+- Event time
+- Processing time
+- Watermarks
+- Late arrival handling
+
+#### Why This Matters
+- Real-world event systems do not deliver perfectly ordered data.
+- Late events can corrupt aggregations if not handled explicitly.
+- Watermarking provides a controlled balance between correctness and timeliness.
+
+#### Outcome
+- Late data rules are explicit.
+- Streaming windows become more reliable.
+- Event-time analytics become safer.
+
+### Phase 5: Idempotency and Replay Safety
+#### Concepts Used
+- Exactly-once thinking
+- Idempotent writes
+- Replay-safe processing
+- Deduplication by event identity
+
+#### Why This Matters
+- Streaming systems must survive restarts and replays without duplicating business events.
+- Replay capability is one of the key reasons to choose a Kappa-style design.
+- Trust in real-time analytics depends on deterministic recovery.
+
+#### Outcome
+- Duplicate event risk is reduced.
+- Reprocessing becomes safer.
+- Live and replay paths stay aligned.
+
+### Phase 6: Streaming Silver and Gold Promotion
+#### Concepts Used
+- Incremental transformation
+- Streaming-quality enforcement
+- Stateful processing
+- Near-real-time serving
+
+#### Why This Matters
+- Streaming Bronze alone is not enough; business value appears when trusted Silver and Gold outputs update continuously.
+- Quality logic must remain consistent across batch and streaming paths.
+- This is where real-time lakehouse value becomes visible.
+
+#### Outcome
+- Silver and Gold can evolve toward near-real-time behavior.
+- Same business logic can support both live and historical processing.
+- Dashboard freshness improves.
+
+### Final Result of Streaming Integration
+
+The streaming layer produces:
+
+- Event ingestion into Bronze
+- Replay-safe checkpointed processing
+- Controlled late data handling
+- Real-time path for Bronze -> Silver -> Gold
+
 
 ## Stage 8: Dashboard and Reporting Layer
 ### Objectives
@@ -1055,6 +1427,122 @@ Provide actionable government insights.
 
 ### Output
 - Executive and operational dashboards
+
+## Dashboard and Reporting Detailed Plan
+
+This section is the execution blueprint for the BI and reporting layer.
+Focus is on turning Gold data into usable insight products for executive, analytical, and operational users.
+
+### Phase 1: Audience and Use-case Definition
+#### Concepts Used
+- Stakeholder mapping
+- Decision-support design
+- Analytical personas
+- Dashboard objective setting
+
+#### Why This Matters
+- Different users need different questions answered.
+- A dashboard without a clear audience becomes cluttered and low-trust.
+- Executive and operational reporting should not use the same layout blindly.
+
+#### Outcome
+- Dashboard user groups are clearly defined.
+- Each dashboard has a decision purpose.
+- Reporting design becomes more focused.
+
+### Phase 2: KPI Selection and Semantic Alignment
+#### Concepts Used
+- KPI governance
+- Semantic consistency
+- Gold-to-BI mapping
+- Metric catalog thinking
+
+#### Why This Matters
+- BI tools should not redefine business metrics independently.
+- Dashboard trust depends on using the same KPI definitions as Gold.
+- Metric ambiguity creates reporting conflict.
+
+#### Outcome
+- KPI list is standardized.
+- Dashboard measures align with Gold logic.
+- Report consumers see more consistent numbers.
+
+### Phase 3: Semantic Model Design
+#### Concepts Used
+- Star schema consumption
+- BI semantic modeling
+- Relationships and measures
+- Dimensional navigation
+
+#### Why This Matters
+- BI tools perform best when fed a clean semantic structure.
+- Proper relationships between Gold facts and dimensions reduce dashboard confusion.
+- A semantic model is the bridge between engineering outputs and user consumption.
+
+#### Outcome
+- Fact and dimension relationships are defined for BI.
+- Measures and filters behave more predictably.
+- Dashboard development becomes easier.
+
+### Phase 4: Executive Dashboard Design
+#### Concepts Used
+- Summary KPI design
+- High-level storytelling
+- Strategic visualization
+- Monitoring-first layout
+
+#### Why This Matters
+- Leaders need fast understanding, not raw data exploration.
+- Executive dashboards should focus on trends, risks, and high-level performance.
+- Clear strategic views improve decision speed.
+
+#### Outcome
+- National and state overview dashboards.
+- High-level KPI cards and trend views.
+- More actionable executive reporting.
+
+### Phase 5: Operational Dashboard Design
+#### Concepts Used
+- Drill-down analytics
+- Exception monitoring
+- Operational reporting
+- Detail-level slicing
+
+#### Why This Matters
+- Operational teams need to investigate issues, not just view summaries.
+- District-level drill-down and anomaly views are critical for actionability.
+- Detailed reporting turns analytics into operations.
+
+#### Outcome
+- District drill-down dashboards.
+- Data quality health views.
+- Investigation-ready reporting surfaces.
+
+### Phase 6: Filters, Exports, and Scheduled Reports
+#### Concepts Used
+- Self-service reporting
+- Report parameterization
+- Export workflows
+- Scheduling and subscriptions
+
+#### Why This Matters
+- Users often need filtered extracts and recurring reports, not only live dashboards.
+- Scheduling supports regular decision cycles.
+- Exports increase operational usefulness.
+
+#### Outcome
+- Filterable dashboards and reports.
+- Export-ready analytical views.
+- Scheduled report delivery.
+
+### Final Result of the Dashboard Layer
+
+The reporting layer produces:
+
+- Executive dashboards
+- Operational drill-down reports
+- Data quality reporting views
+- Scheduled and exportable insight products
 
 ## Stage 9: Security, Governance, Compliance
 ### Objectives
@@ -1094,6 +1582,105 @@ Safe, repeatable delivery.
 ### Output
 - Controlled release pipeline
 
+## CI/CD and Testing Detailed Plan
+
+This section is the execution blueprint for delivery automation and engineering quality control.
+Focus is on keeping code, data logic, and deployment changes safe and repeatable.
+
+### Phase 1: Repository Standards and Branch Strategy
+#### Concepts Used
+- Git workflow
+- Branching strategy
+- Pull request discipline
+- Change review controls
+
+#### Why This Matters
+- Stable delivery starts with predictable source control behavior.
+- Branch strategy affects release quality and team coordination.
+- PR discipline reduces risky direct changes.
+
+#### Outcome
+- Clear branch flow such as dev -> qa -> prod.
+- Review process is standardized.
+- Release coordination becomes easier.
+
+### Phase 2: Automated Code Quality Checks
+#### Concepts Used
+- Linting
+- Static analysis
+- Formatting
+- Early failure detection
+
+#### Why This Matters
+- Quality issues are cheaper to catch before runtime.
+- Code standards improve maintainability and reduce review overhead.
+- Automated checks create consistent engineering hygiene.
+
+#### Outcome
+- Basic code quality is enforced automatically.
+- Merge quality improves.
+- Manual review can focus on higher-value issues.
+
+### Phase 3: Unit and Integration Tests
+#### Concepts Used
+- Test design
+- Dependency isolation
+- Integration coverage
+- Regression prevention
+
+#### Why This Matters
+- Data pipeline logic changes can silently break production behavior.
+- Unit tests protect transformation functions.
+- Integration tests protect end-to-end pipeline flow.
+
+#### Outcome
+- Pipeline logic has repeatable test coverage.
+- Refactors become safer.
+- Regression risk is reduced.
+
+### Phase 4: Data Quality Tests in CI
+#### Concepts Used
+- Data assertions
+- Contract checks
+- Quality gates
+- Pipeline validation automation
+
+#### Why This Matters
+- Data systems need data tests, not only code tests.
+- CI should block releases that break key data assumptions.
+- This extends Bronze/Silver/Gold trust into the delivery pipeline.
+
+#### Outcome
+- Data contracts are enforced automatically.
+- Bad changes are caught before release.
+- Release confidence increases.
+
+### Phase 5: Deployment Automation
+#### Concepts Used
+- CI/CD workflows
+- Environment promotion
+- Release automation
+- Infrastructure-aware delivery
+
+#### Why This Matters
+- Manual deployment is slow, inconsistent, and risky.
+- Automation keeps environments aligned.
+- Reliable delivery is essential for an evolving analytics platform.
+
+#### Outcome
+- Deployments become repeatable.
+- Environment drift is reduced.
+- Release speed and safety improve.
+
+### Final Result of CI/CD and Testing
+
+This stage produces:
+
+- Repeatable release process
+- Automated quality gates
+- Safer code and data pipeline changes
+- Controlled promotion from dev to qa to prod
+
 ## Stage 12: Go-Live and Operations
 ### Objectives
 Run as a real production service.
@@ -1106,6 +1693,106 @@ Run as a real production service.
 ### Output
 - Fully operational government analytics platform
 
+## Go-Live and Operations Detailed Plan
+
+This section is the execution blueprint for moving the platform from build mode to production operation.
+Focus is on rollout control, support readiness, monitoring, and service reliability.
+
+### Phase 1: Production Readiness Review
+#### Concepts Used
+- Readiness assessment
+- Release gating
+- Operational acceptance
+- Risk review
+
+#### Why This Matters
+- Going live too early creates avoidable operational incidents.
+- A readiness review ensures technical, security, and support foundations exist.
+- Production trust must be earned before rollout.
+
+#### Outcome
+- Go-live criteria are explicit.
+- Risks are reviewed before launch.
+- Production release becomes more controlled.
+
+### Phase 2: Pilot Launch
+#### Concepts Used
+- Limited rollout
+- Change risk reduction
+- Early production feedback
+- Controlled adoption
+
+#### Why This Matters
+- Pilots reduce blast radius.
+- Early usage reveals issues that testing may miss.
+- Controlled rollout protects stakeholder trust.
+
+#### Outcome
+- Initial production usage begins safely.
+- Feedback is collected early.
+- Operational issues can be corrected before broad rollout.
+
+### Phase 3: Monitoring, Alerts, and SLA Tracking
+#### Concepts Used
+- Service monitoring
+- Alerting strategy
+- SLA/SLO thinking
+- Operational observability
+
+#### Why This Matters
+- A live analytics platform needs continuous visibility.
+- Teams must know quickly when data freshness, jobs, or dashboards fail.
+- Monitoring turns the platform into a managed service instead of a one-time project.
+
+#### Outcome
+- Alerts are configured for critical failures.
+- Freshness and job health are monitored.
+- Operational reliability becomes measurable.
+
+### Phase 4: Incident Runbooks and Support Model
+#### Concepts Used
+- Incident response
+- Operational runbooks
+- Escalation paths
+- Support ownership
+
+#### Why This Matters
+- Production systems need recovery procedures before incidents happen.
+- Runbooks reduce downtime and confusion during failures.
+- Support ownership is necessary for stable operations.
+
+#### Outcome
+- Common failure scenarios have documented response steps.
+- Support responsibilities are assigned.
+- Recovery becomes faster and more repeatable.
+
+### Phase 5: Phased Rollout and Continuous Improvement
+#### Concepts Used
+- Controlled scaling
+- Feedback loops
+- Post-launch optimization
+- Service maturity growth
+
+#### Why This Matters
+- Production maturity improves through iteration, not one launch event.
+- Feedback from real users should guide platform hardening.
+- Phased growth is safer than immediate full-scale exposure.
+
+#### Outcome
+- Rollout expands gradually and safely.
+- Platform quality improves after launch.
+- Service operations become more mature over time.
+
+### Final Result of Go-Live and Operations
+
+This stage produces:
+
+- Production-ready launch criteria
+- Controlled rollout plan
+- Monitoring and alerting framework
+- Incident response readiness
+- A fully operational analytics service
+
 ## Current Status Summary
 - EDA foundation: Completed
 - 14-step framework implementation: Completed
@@ -1113,3 +1800,287 @@ Run as a real production service.
 - Documentation artifacts: Completed
 - Bronze/Silver/Gold production pipeline: Next active build phase
 
+## Appendix A: Stage-by-Stage Acceptance Checklist
+
+Use this checklist to decide whether a stage is conceptually complete, operationally stable, and ready to hand off to the next stage.
+
+### Stage 2: Raw Data Modeling and Contracts
+- Grain of every source table is clearly defined.
+- Required business columns are documented.
+- Expected data types are documented.
+- Known quality problems are listed.
+- Source-to-target understanding exists before pipeline coding.
+
+### Stage 3: Bronze Layer
+- Raw files are ingested successfully into Delta.
+- Bronze tables are queryable by name.
+- Metadata columns are present for lineage.
+- Partitioning strategy is applied and validated.
+- Rerun behavior is controlled and documented.
+- Bronze validation checks pass.
+
+### Stage 4: Silver Layer
+- Cleaning rules are documented and implemented.
+- Null handling and standardization are applied consistently.
+- Invalid rows are either quarantined or explicitly handled.
+- Silver tables are registered and queryable.
+- Output is suitable for business-safe joins.
+
+### Stage 5: Gold Layer
+- Business grain is defined for each mart.
+- Dimensions are conformed across use cases.
+- Fact tables reference dimensions consistently.
+- KPI definitions are documented.
+- Gold outputs are ready for dashboards and policy analysis.
+
+### Stage 6: Data Entry Platform
+- Users can submit records through controlled workflows.
+- Input validation happens before data is accepted.
+- Audit fields are captured for every write event.
+- Authentication and authorization are enforced.
+- Operational system data can flow safely into Bronze.
+
+### Stage 7: Streaming Integration
+- Streaming source and schema are defined.
+- Checkpointing and recovery strategy are configured.
+- Replay and backfill approach is documented.
+- Streaming data can be reconciled with batch history.
+- Failure handling is deterministic and testable.
+
+### Stage 8: Dashboard and Reporting
+- Core KPIs are agreed with business meaning.
+- Dashboard datasets come from Gold, not ad hoc tables.
+- Filters and drill-down paths are defined.
+- Refresh expectations are documented.
+- Visual outputs are validated against known numbers.
+
+### Stage 9: Security and Governance
+- Access model is defined by role.
+- Sensitive columns are identified.
+- Auditability exists across ingestion and reporting.
+- Data ownership is documented.
+- Governance controls are aligned with actual usage.
+
+### Stage 10: Platform Hardening
+- Backup and recovery path is understood.
+- Performance bottlenecks are identified.
+- Storage and compute expectations are documented.
+- Failure scenarios are known and recoverable.
+- Monitoring strategy exists for critical pipelines.
+
+### Stage 11: CI/CD and Testing
+- Critical scripts are testable.
+- Validation and quality checks can be automated.
+- Deployment and release steps are repeatable.
+- Documentation is updated as part of delivery.
+- Changes can be promoted safely with confidence.
+
+### Stage 12: Go-Live and Operations
+- Support ownership is assigned.
+- Incident runbooks are available.
+- SLA and alert expectations are defined.
+- Pilot rollout plan exists.
+- Production readiness review is completed.
+
+## Appendix B: Bronze, Silver, Gold Comparison
+
+This section helps distinguish the purpose of each lakehouse layer in practical terms.
+
+### Bronze
+- Purpose: capture raw source truth with minimal business interpretation.
+- Data shape: close to source system structure.
+- Main focus: ingestion reliability, lineage, replay safety, ACID storage.
+- Typical users: data engineers, platform maintainers.
+- Typical questions answered:
+- Did the file arrive?
+- How many rows were loaded?
+- Can the load be replayed safely?
+- Where did this row come from?
+
+### Silver
+- Purpose: create standardized, validated, and trustworthy datasets.
+- Data shape: cleaned and business-safe.
+- Main focus: quality rules, standardization, schema discipline, conformance.
+- Typical users: data engineers, analysts, transformation developers.
+- Typical questions answered:
+- Is the data valid?
+- Are columns standardized?
+- Can this dataset be safely joined?
+- Are quality issues isolated before analytics?
+
+### Gold
+- Purpose: present business-ready facts, dimensions, and KPIs.
+- Data shape: star-schema-style or dashboard-oriented marts.
+- Main focus: semantic modeling, KPI logic, consumption performance.
+- Typical users: analysts, BI developers, stakeholders, policy teams.
+- Typical questions answered:
+- How is enrollment trending over time?
+- Which districts lag in linkage?
+- What is the biometric coverage by state?
+- Which schemes show beneficiary anomalies?
+
+## Appendix C: Validation Command Reference
+
+These commands are useful during development, demonstrations, and interviews.
+
+### Bronze Metadata Validation
+```python
+spark.sql("SHOW TABLES IN bronze").show(truncate=False)
+spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
+spark.sql("SELECT COUNT(*) FROM bronze.demographic").show()
+spark.sql("SELECT COUNT(*) FROM bronze.demographic WHERE bronze_ingest_ts IS NULL").show()
+spark.sql("SELECT COUNT(*) FROM bronze.demographic WHERE bronze_source_file IS NULL").show()
+spark.sql("SELECT COUNT(*) FROM bronze.demographic WHERE bronze_batch_id IS NULL").show()
+```
+
+### Silver Quality Validation
+```python
+spark.sql("SHOW TABLES IN silver").show(truncate=False)
+spark.sql("DESCRIBE DETAIL silver.demographic_valid").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
+spark.sql("SELECT COUNT(*) FROM silver.demographic_valid").show()
+spark.sql("SELECT COUNT(*) FROM silver.demographic_valid WHERE date IS NULL").show()
+```
+
+### Gold Validation
+```python
+spark.sql("SHOW TABLES IN gold").show(truncate=False)
+spark.sql("SELECT * FROM gold.dim_date LIMIT 10").show(truncate=False)
+spark.sql("SELECT * FROM gold.dim_location LIMIT 10").show(truncate=False)
+spark.sql("SELECT * FROM gold.fact_demographic LIMIT 10").show(truncate=False)
+```
+
+### Partition Pruning Validation
+```python
+spark.sql("EXPLAIN FORMATTED SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-01'").show(truncate=False)
+spark.sql("EXPLAIN FORMATTED SELECT * FROM silver.enrolment_valid WHERE date = DATE '2025-03-01'").show(truncate=False)
+```
+
+### Re-runnability Validation
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -BronzeMode overwrite
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -BronzeMode overwrite
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeMode append
+```
+
+## Appendix D: Interview Explanation Bank
+
+Use these short explanations when you need to describe the project quickly.
+
+### Explain the Project in 30 Seconds
+This project is a government-style lakehouse built on Spark and Delta Lake using Medallion Architecture. Bronze stores raw departmental data with lineage and replay safety, Silver applies cleaning and validation, and Gold is designed for KPI-ready analytics and dashboard consumption.
+
+### Explain Why Delta Lake Was Chosen
+Delta Lake adds ACID transactions, schema handling, and reliable read/write behavior on top of file-based storage. That makes it appropriate for repeatable ingestion, partitioned storage, validation, and production-style data engineering workflows.
+
+### Explain Why Bronze Needs Metadata
+Bronze must remain auditable. Metadata like source file, ingest timestamp, and batch identifier helps trace every row back to its load event, which is important for debugging, governance, and replay safety.
+
+### Explain Why Silver Exists
+Silver separates raw storage from trusted business-ready data. It is the place where data is standardized, validated, and shaped into something safe for joins, analytics, and downstream modeling.
+
+### Explain Why Gold Uses Dimensions and Facts
+Gold focuses on analytics consumption. Facts store measurable events and dimensions provide conformed descriptive context. This improves KPI consistency, BI usability, and dashboard performance.
+
+### Explain Why Partitioning Was Added
+Partitioning reduces unnecessary data scans by organizing storage around high-value filter columns like date. That improves query performance and makes the storage layout more scalable as data volume grows.
+
+### Explain Why Re-runnability Matters
+Production pipelines fail sometimes. A rerunnable design ensures the system can recover safely without manual cleanup and without creating duplicated or corrupted history.
+
+## Appendix E: Example Production Runbooks
+
+These are sample operational playbooks that can later be converted into formal runbooks.
+
+### Runbook 1: Bronze Load Failed
+1. Confirm which table failed and capture the run id.
+2. Check whether the source file path is available.
+3. Review the Spark application log for the failing stage.
+4. Confirm whether partial Delta output was committed or rolled back.
+5. Rerun only the affected table in overwrite mode.
+6. Re-run Bronze validation for that table.
+7. If successful, resume downstream Silver processing.
+
+### Runbook 2: Silver Validation Failed
+1. Identify which rule failed and on which table.
+2. Compare Silver output count to Bronze input count.
+3. Inspect null, schema, and parsing issues.
+4. Check whether a recent source schema or format changed.
+5. Correct transformation logic or quarantine logic as needed.
+6. Rerun only the affected Silver table.
+7. Re-check counts and quality metrics before promotion.
+
+### Runbook 3: Dashboard KPI Mismatch
+1. Identify the metric definition in the Gold layer.
+2. Confirm the dashboard query is using the correct Gold table.
+3. Check whether the latest Gold refresh completed.
+4. Validate the KPI directly in Spark SQL.
+5. Compare dashboard result to direct query output.
+6. If mismatch remains, inspect semantic model joins and filters.
+7. Publish a corrected KPI note or dashboard fix.
+
+### Runbook 4: Partitioning Appears Incorrect
+1. Run `DESCRIBE DETAIL` on the table.
+2. Confirm the expected `partitionColumns`.
+3. Check whether the latest write actually rewrote the table.
+4. Validate filtered queries using `EXPLAIN FORMATTED`.
+5. Confirm the partition column is not null-heavy.
+6. If needed, rerun the table with the corrected partition normalization logic.
+
+## Appendix F: Gold Layer Candidate Outputs for This Domain
+
+These are realistic Gold outputs that fit the identity and government-benefit theme of this project.
+
+### Core Dimensions
+- `gold.dim_date`
+- `gold.dim_location`
+- `gold.dim_scheme`
+- `gold.dim_data_source`
+
+### Core Facts
+- `gold.fact_demographic`
+- `gold.fact_enrolment`
+- `gold.fact_biometric`
+- `gold.fact_aadhaar_voter_linkage`
+- `gold.fact_scheme_beneficiary`
+- `gold.fact_district_scheme_payment`
+
+### KPI Marts
+- `gold.kpi_identity_coverage_daily`
+- `gold.kpi_biometric_authentication_daily`
+- `gold.kpi_scheme_distribution_monthly`
+- `gold.kpi_linkage_quality_statewise`
+- `gold.kpi_enrolment_vs_population_gap`
+
+### Executive Views
+- `gold.executive_state_summary`
+- `gold.executive_district_summary`
+- `gold.executive_scheme_performance`
+- `gold.executive_identity_risk_view`
+
+## Appendix G: What Still Needs Implementation After Documentation
+
+This README now contains detailed design guidance, but some later-stage items remain future implementation work.
+
+### Already Implemented in Code
+- Bronze ingestion
+- Bronze metadata
+- Bronze partitioning
+- Bronze rerunnability controls
+- Bronze validation
+- Silver transformation flow
+- Silver partitioning
+- Spark launcher and project run scripts
+
+### Planned but Not Yet Fully Implemented
+- Full Gold table build scripts
+- Data entry application
+- Streaming ingestion path
+- Dashboard delivery assets
+- Formal CI pipeline
+- Production monitoring stack
+- Full operational runbook automation
+
+### Why This Distinction Matters
+- Documentation shows architectural intent.
+- Implemented code shows current working capability.
+- Keeping these separate makes the README more honest and more professional.
