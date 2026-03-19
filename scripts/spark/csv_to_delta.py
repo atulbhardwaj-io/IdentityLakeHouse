@@ -1,6 +1,8 @@
 import os
+from typing import List, Tuple
 
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 
 SYNTHETIC_FOLDER = "/app/synthetic_data/synthetic"
@@ -21,6 +23,18 @@ BIOMETRIC_CSV = (
     "/app/data/api_data_aadhar_biometric/api_data_aadhar_biometric/"
     "api_data_aadhar_biometric_combined.csv"
 )
+
+PARTITION_COLS_BY_TABLE = {
+    "aadhaar_voter_link_raw": ["date"],
+    "biometric": ["date"],
+    "demographic": ["date"],
+    "district_scheme_payment_raw": ["date"],
+    "enrolment": ["date"],
+    "population_raw": ["date"],
+    "scheme_beneficiary_raw": ["date"],
+    "scheme_master_raw": ["active_flag"],
+    "voter_registry_raw": ["date"],
+}
 
 
 def build_spark() -> SparkSession:
@@ -44,18 +58,51 @@ def load_csv(spark: SparkSession, file_path: str):
     )
 
 
+def normalize_partition_cols(df, partition_cols: List[str]) -> Tuple[object, List[str]]:
+    normalized_df = df
+    usable_partition_cols: List[str] = []
+
+    for col_name in partition_cols:
+        if col_name not in normalized_df.columns:
+            continue
+
+        if col_name.endswith("date") or col_name == "date":
+            normalized_df = normalized_df.withColumn(
+                col_name,
+                F.coalesce(
+                    F.to_date(F.col(col_name), "dd-MM-yyyy"),
+                    F.to_date(F.col(col_name), "yyyy-MM-dd"),
+                    F.col(col_name).cast("date"),
+                ),
+            )
+
+        usable_partition_cols.append(col_name)
+
+    return normalized_df, usable_partition_cols
+
+
 def write_delta(df, table_name: str) -> None:
     output_path = f"{BRONZE_BASE_PATH}/{table_name}"
+    requested_partition_cols = PARTITION_COLS_BY_TABLE.get(table_name, [])
+    df, partition_cols = normalize_partition_cols(df, requested_partition_cols)
 
-    (
+    writer = (
         df.write.format("delta")
         .mode("overwrite")
         .option("overwriteSchema", "true")
-        .save(output_path)
     )
+
+    if partition_cols:
+        writer = writer.partitionBy(*partition_cols)
+
+    writer.save(output_path)
 
     row_count = df.count()
     print(f"[OK] {table_name} Delta table created | rows={row_count} | path={output_path}")
+    if partition_cols:
+        print(f"[PARTITIONED BY] {table_name}: {partition_cols}")
+    else:
+        print(f"[PARTITIONED BY] {table_name}: none")
     print(f"[SCHEMA] {table_name}: {df.columns}")
 
 

@@ -204,6 +204,20 @@ Focus is only Bronze, with Apache Spark + Delta Lake.
 - Scalable storage layout.
 - Better runtime efficiency.
 
+#### Current Partition Strategy In This Repo
+- Bronze/Silver fact-style tables partition by `date`
+- `scheme_master_raw` and `scheme_master_raw_valid` partition by `active_flag`
+- Keep partition count low enough to avoid many tiny files
+- Use filters on partition columns to benefit from pruning
+
+Example validation queries:
+
+```python
+spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
+spark.sql("SELECT COUNT(*) FROM bronze.demographic WHERE date = DATE '2025-03-01'").show()
+spark.sql("EXPLAIN SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-01'").show(truncate=False)
+```
+
 ### Phase 8: Re-runnability Design
 #### Concepts Used
 - Idempotent design patterns

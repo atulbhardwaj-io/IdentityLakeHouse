@@ -12,7 +12,7 @@ Option 1: start PySpark with the helper script
 .\run_pyspark.ps1
 
 Option 2: run directly from PowerShell in one command
-docker exec -it spark-master /bin/bash -lc "mkdir -p /tmp/.ivy2/cache /tmp/.ivy2/jars && /opt/spark/bin/pyspark --master spark://spark-master:7077 --packages io.delta:delta-spark_2.12:3.0.0 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog --conf spark.sql.catalogImplementation=hive --conf spark.sql.warehouse.dir=/app/spark-warehouse --conf javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true"
+docker exec -it spark-master /bin/bash -lc "mkdir -p /tmp/.ivy2/cache /tmp/.ivy2/jars && /opt/spark/bin/pyspark --master spark://spark-master:7077 --packages io.delta:delta-spark_2.12:3.0.0 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog --conf spark.sql.catalogImplementation=hive --conf spark.sql.warehouse.dir=/app/spark-warehouse --conf 'javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true'"
 
 If you first enter the container with `docker exec -it spark-master bash`, then the Linux multiline commands below will work as written.
 
