@@ -234,6 +234,23 @@ spark.sql("EXPLAIN SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-0
 - Stable ingestion behavior under failures.
 - Higher reliability in operations.
 
+#### Phase 8 Completed In This Repo
+- Bronze full snapshot reruns use `overwrite` by default
+- Silver reruns use `overwrite` by default
+- Pipeline supports targeted reruns by table for Bronze and Silver
+- Each pipeline run prints and passes a `RunId`
+- Full append replay is blocked by default for Bronze when `--tables all` is used
+
+Example rerun commands:
+
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -BronzeMode overwrite
+.\run_pipeline.ps1 -SilverTables demographic biometric
+```
+
+Validation signal:
+- Triggering Bronze append with all tables now fails intentionally with a safety error instead of replaying the full snapshot.
+
 ### Phase 9: Validation
 #### Concepts Used
 - Row-count verification
@@ -250,6 +267,34 @@ spark.sql("EXPLAIN SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-0
 - Verified Bronze correctness.
 - Trusted ingestion layer.
 - Ready handoff to Silver processing.
+
+#### Phase 9 Implemented In This Repo
+- Bronze validation is available as a runnable pipeline step
+- Source CSV row counts are compared against Bronze Delta row counts
+- Bronze schema is printed during validation
+- Required metadata columns are validated:
+  - `bronze_ingest_ts`
+  - `bronze_source_file`
+  - `bronze_batch_id`
+- Delta read-back and `DESCRIBE DETAIL` are used to confirm table readability and metadata
+
+Example validation command:
+
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -RunBronzeValidation -SkipBronzeToSilver
+```
+
+Validate only selected Bronze tables:
+
+```powershell
+.\run_pipeline.ps1 -RunBronzeValidation -SkipBronzeToSilver -BronzeTables demographic enrolment
+```
+
+Validation passes when:
+- source and Bronze row counts match
+- Bronze metadata columns exist
+- required Bronze metadata columns do not contain nulls
+- Delta table can be read back successfully
 
 ### Bronze Final Deliverable
 - Distributed raw storage in Delta format
@@ -664,6 +709,312 @@ Build decision-grade data models.
 
 ### Output
 - Dashboard-ready Gold tables/views
+
+## Gold Layer Detailed Plan (Spark + Delta Only)
+
+This section is the execution blueprint for Gold implementation.
+Focus is only Gold, with Apache Spark + Delta Lake.
+
+### Phase 1: Silver Data Loading
+#### Concepts Used
+- Spark DataFrame API
+- Delta table reads
+- Consistent snapshot access
+- Lazy evaluation
+
+#### Why This Matters
+- Gold must consume only trusted Silver datasets.
+- Reading directly from Silver preserves validated schema and quality controls.
+- A stable Silver input is the foundation of reliable business metrics.
+
+#### Outcome
+- Gold pipeline reads standardized Silver tables.
+- Gold logic starts from trusted data only.
+- Input layer for analytics is stable.
+
+### Phase 2: Business Grain Definition
+#### Concepts Used
+- Fact grain design
+- Dimensional modeling
+- Analytical data modeling
+- Business metric scoping
+
+#### Why This Matters
+- Gold tables must represent clear business meaning.
+- Without a fixed grain, KPI logic becomes inconsistent.
+- Correct grain prevents double counting and broken dashboards.
+
+#### Outcome
+- Each Gold fact table has a defined grain.
+- KPI calculations are consistent.
+- Data models are dashboard-ready.
+
+### Phase 3: Conformed Dimensions
+#### Concepts Used
+- Star schema modeling
+- Conformed dimensions
+- Surrogate key thinking
+- Shared analytical dimensions
+
+#### Why This Matters
+- Multiple Gold facts should join to the same date and location dimensions.
+- Conformed dimensions allow consistent slicing across all metrics.
+- Shared dimensions reduce ambiguity in reporting.
+
+#### Outcome
+- `dim_date` can support day, month, quarter, year analysis.
+- `dim_location` can support national, state, district, pincode drill-downs.
+- All Gold facts use common dimensional logic.
+
+### Phase 4: Fact Table Construction
+#### Concepts Used
+- Fact modeling
+- Aggregation logic
+- Metric engineering
+- Joins across trusted datasets
+
+#### Why This Matters
+- Facts capture measurable business events and outcomes.
+- They are the center of Gold analytics and KPI reporting.
+- Well-built facts support trend analysis, comparisons, and dashboard performance.
+
+#### Outcome
+- Enrollment, demographic, and biometric Gold facts are built.
+- Facts align with shared conformed dimensions.
+- Business metrics become queryable at trusted grain.
+
+### Phase 5: KPI Definition and Standardization
+#### Concepts Used
+- Business rules
+- KPI semantics
+- Derived metrics
+- Standardized formulas
+
+#### Why This Matters
+- Dashboard trust depends on metric consistency.
+- Different users must see the same KPI values for the same filters.
+- Gold is where final business formulas should be standardized.
+
+#### Outcome
+- Reusable KPI formulas are defined once.
+- Metrics such as totals, percentages, coverage, and trends are standardized.
+- Dashboard logic is centralized in Gold instead of scattered across tools.
+
+### Phase 6: Analytical Aggregates and Marts
+#### Concepts Used
+- Aggregation design
+- Data marts
+- Rollups
+- Performance-oriented serving tables
+
+#### Why This Matters
+- Dashboards should not compute every aggregation from raw facts on demand.
+- Gold marts improve response time and reduce repeated heavy computation.
+- Pre-aggregated marts make district, state, and monthly reporting practical.
+
+#### Outcome
+- District-level KPI marts
+- State-level summary marts
+- Monthly trend marts
+- Dashboard-ready aggregated datasets
+
+### Phase 7: Business Rule Enrichment
+#### Concepts Used
+- Domain logic
+- Derived classifications
+- Analytical transformations
+- Semantic enrichment
+
+#### Why This Matters
+- Gold should present business-friendly fields, not only technical columns.
+- Enriched attributes make reporting easier for end users.
+- This layer converts validated data into decision-grade information.
+
+#### Outcome
+- Derived labels, categories, and business segments are added.
+- Analytical tables become easier to consume in BI tools.
+- Domain semantics are embedded into Gold outputs.
+
+### Phase 8: Time Intelligence and Trend Modeling
+#### Concepts Used
+- Time-series analysis
+- Month-over-month logic
+- Rolling windows
+- Period comparison metrics
+
+#### Why This Matters
+- Most government analytics depend on change over time.
+- Gold must support trend monitoring, performance comparisons, and anomaly tracking.
+- Time intelligence improves strategic usefulness of the platform.
+
+#### Outcome
+- Month-over-month and period-based metrics are available.
+- Trend marts support performance monitoring.
+- Analytical history becomes easier to interpret.
+
+### Phase 9: Data Quality Gating for Gold
+#### Concepts Used
+- Quality thresholds
+- Promotion rules
+- Trusted publishing controls
+- Metric-level validation
+
+#### Why This Matters
+- Gold should publish only if Silver data is sufficiently trustworthy.
+- Business dashboards should not consume broken or incomplete metrics.
+- Quality gates prevent silent business reporting failures.
+
+#### Outcome
+- Gold publishing depends on validated Silver inputs.
+- KPI tables are promoted only when checks pass.
+- Business consumers receive more trustworthy data.
+
+### Phase 10: Gold Metadata and Auditability
+#### Concepts Used
+- Audit columns
+- Freshness tracking
+- Lineage metadata
+- Run traceability
+
+#### Why This Matters
+- Decision-grade analytics still need operational traceability.
+- Gold outputs must show when they were generated and by which run.
+- This helps debugging, trust, and stakeholder communication.
+
+#### Outcome
+- Gold tables include processing metadata.
+- Data freshness and lineage remain visible.
+- Gold publishing is auditable.
+
+### Phase 11: Partitioning and Performance Design
+#### Concepts Used
+- Physical partitioning
+- Query pruning
+- Serving optimization
+- Delta storage design
+
+#### Why This Matters
+- Gold tables serve dashboards and repeated filtered queries.
+- Good partitioning improves dashboard latency and reduces scan cost.
+- Performance design is necessary for scalable analytics serving.
+
+#### Outcome
+- Gold tables have serving-aware storage layout.
+- Common filter paths are optimized.
+- Dashboard queries become faster and more predictable.
+
+### Phase 12: Re-runnability and Safe Rebuilds
+#### Concepts Used
+- Idempotent rebuild strategy
+- Replay-safe Gold generation
+- Controlled overwrite patterns
+- Run-based traceability
+
+#### Why This Matters
+- Gold logic may need periodic full rebuilds from Silver.
+- Rerunning Gold should not duplicate metrics or create conflicting KPI versions.
+- Safe rebuild behavior is essential for production reliability.
+
+#### Outcome
+- Gold can be rebuilt safely from Silver.
+- Repeated runs remain controlled and predictable.
+- Historical trust is preserved during recovery and backfill.
+
+### Phase 13: Validation and Reconciliation
+#### Concepts Used
+- Metric reconciliation
+- Row-count sanity checks
+- Business-rule validation
+- Cross-layer consistency checks
+
+#### Why This Matters
+- Gold metrics must reconcile to Silver facts and aggregates.
+- This prevents incorrect business reporting from going live.
+- Reconciliation is the final trust checkpoint before dashboard consumption.
+
+#### Outcome
+- Gold metrics are validated against Silver-derived expectations.
+- Aggregated outputs are trustworthy.
+- Final publishing confidence is higher.
+
+### Phase 14: Serving Layer Readiness
+#### Concepts Used
+- BI serving design
+- Semantic readiness
+- Consumer-friendly modeling
+- Query interface design
+
+#### Why This Matters
+- Gold exists to serve dashboards, reports, and decision-making.
+- Tables should be designed for business users, not only engineers.
+- Good serving design reduces confusion in BI tools.
+
+#### Outcome
+- Gold tables and views are dashboard-ready.
+- Business users can consume curated datasets with less transformation.
+- Reporting layer integration becomes simpler.
+
+### Skills You Will Develop in the Gold Layer
+
+By completing this stage you will gain:
+
+- Dimensional modeling expertise
+- KPI engineering skills
+- Business-rule-driven analytics design
+- Aggregate and mart design thinking
+- Gold-layer validation and reconciliation practices
+- Dashboard-serving data modeling knowledge
+- Decision-grade data engineering mindset
+
+### Spark Concepts You Must Know
+
+To successfully implement this layer you should understand:
+
+- DataFrame joins
+- aggregations and rollups
+- window functions
+- repartitioning and partition pruning
+- writing optimized Delta datasets
+- incremental rebuild strategies
+
+### Delta Lake Concepts to Learn
+
+Important capabilities to understand:
+
+- ACID reliability for fact and aggregate tables
+- overwrite vs append tradeoffs
+- schema evolution
+- partition-aware storage layout
+- optimization and compaction concepts
+- safe rerun and rebuild behavior
+
+### Final Result of the Gold Layer
+
+The Gold layer produces:
+
+Conformed dimensions:
+
+- gold.dim_date
+- gold.dim_location
+
+Business facts:
+
+- gold.fact_enrollment
+- gold.fact_demographic
+- gold.fact_biometric
+
+Analytical marts:
+
+- gold.kpi_district_monthly
+- gold.kpi_state_monthly
+- gold.trend_anomaly_mart
+
+Serving outputs:
+
+- Dashboard-ready Gold tables/views
+- Executive summary datasets
+- State and district drill-down datasets
+- Trusted inputs for Power BI and reporting tools
 
 ## Stage 6: Data Entry Platform (Operational System)
 ### Objectives

@@ -39,6 +39,105 @@ spark.sql("""
 
 ------------------------------------------------------------------------------------
 
+--phase 9 validation
+
+Concepts used
+
+- row-count verification
+- schema validation
+- metadata validation
+- Delta read-back checks
+
+Why this matters
+
+- every load must be validated before promoting trust
+- confirms data presence, schema correctness, and metadata completeness
+- prevents silent failures entering Silver layer
+
+Outcome
+
+- verified Bronze correctness
+- trusted ingestion layer
+- ready handoff to Silver processing
+
+
+How validation is implemented in this project
+
+Main file:
+
+- scripts/spark/validate_bronze.py
+
+Pipeline support:
+
+- run_pipeline.ps1 now supports RunBronzeValidation
+
+What the validator checks
+
+1. source row count
+
+- reads the raw CSV source
+- counts source rows
+
+2. Bronze row count
+
+- reads Bronze Delta table from path
+- counts Bronze rows
+- compares source count vs Bronze count
+
+3. schema validation
+
+- prints Bronze schema
+- confirms table is readable
+
+4. metadata validation
+
+- checks these columns exist:
+  - bronze_ingest_ts
+  - bronze_source_file
+  - bronze_batch_id
+- checks required metadata columns are not null
+
+5. Delta read-back validation
+
+- reads Bronze Delta data successfully
+- uses DESCRIBE DETAIL to inspect Delta metadata
+
+
+How to run Phase 9 validation
+
+Full Bronze load plus validation:
+
+.\run_pipeline.ps1 -RunCsvToBronze -RunBronzeValidation -SkipBronzeToSilver
+
+Validate selected Bronze tables only:
+
+.\run_pipeline.ps1 -RunBronzeValidation -SkipBronzeToSilver -BronzeTables demographic enrolment
+
+
+Validation passes when
+
+- source_count = bronze_count
+- Bronze schema is readable
+- metadata columns exist
+- metadata columns have no null values
+- Delta read-back works
+
+
+Bronze final deliverable in this project
+
+- distributed raw storage in Delta format
+- ACID-protected Bronze tables
+- metadata and lineage for every load
+- partitioned scalable design
+- SQL-queryable Bronze catalog tables
+- replayable ingestion pattern
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
 --partitioning in a project
 
 When to apply partitioning in any project
@@ -237,6 +336,167 @@ Important lesson from this project:
 - best validation is DESCRIBE DETAIL
 - registration issue and partitioning issue are different things
 - Delta data can exist even when catalog table is missing
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
+--phase 8 rerunnability design
+
+Concepts used
+
+- idempotent design patterns
+- replay-safe ingestion
+- controlled append strategy
+
+Why this matters
+
+- pipelines must recover from failures without manual cleanup
+- reprocessing should not corrupt historical data
+- reliable reruns are core production behavior
+
+Outcome
+
+- safe restart capability
+- stable ingestion behavior under failures
+- higher reliability in operations
+
+
+How rerunnability is implemented in this project
+
+Main files:
+
+- scripts/spark/csv_to_delta.py
+- scripts/spark/bronze_to_silver.py
+- run_pipeline.ps1
+
+
+Rerun-safe design used here
+
+1. overwrite is the default mode
+
+- Bronze default mode is overwrite
+- Silver default mode is overwrite
+- rerunning the same load replaces the table safely instead of duplicating data
+- this makes full snapshot loads idempotent
+
+2. targeted reruns are supported
+
+- Bronze supports --tables
+- Silver supports --tables
+- if one table fails, only that table can be rerun
+- no need to rerun the full pipeline every time
+
+3. each pipeline run has a run id
+
+- run_pipeline.ps1 generates RunId
+- RunId is passed into Bronze logging
+- RunId is passed into Silver load and stamped as silver_run_id
+- this helps trace and replay specific runs
+
+4. append mode is explicit and controlled
+
+- append is not the default
+- Bronze supports --mode append only when intentionally chosen
+- append with --tables all is blocked by default
+- this prevents accidental replay of the same full snapshot
+
+5. catalog registration is safe to rerun
+
+- CREATE DATABASE IF NOT EXISTS bronze
+- CREATE TABLE IF NOT EXISTS bronze.<table>
+- CREATE TABLE IF NOT EXISTS silver.<table>
+- registration can be repeated without breaking the pipeline
+
+
+New rerun controls added in this project
+
+In run_pipeline.ps1:
+
+- BronzeTables
+- BronzeMode
+- SilverTables
+- SilverMode
+
+Examples
+
+Rerun only Bronze demographic with overwrite:
+
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -BronzeMode overwrite
+
+Rerun only Bronze enrolment and biometric:
+
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables enrolment biometric
+
+Rerun only Silver demographic and biometric:
+
+.\run_pipeline.ps1 -SilverTables demographic biometric
+
+Run full pipeline with normal safe overwrite:
+
+.\run_pipeline.ps1 -RunCsvToBronze
+
+
+Phase 8 design principle used here
+
+For full snapshot sources:
+
+- use overwrite
+- make rerun replace the same logical data
+- do not append the same full file again
+
+For true incremental sources:
+
+- use append carefully
+- load only new files or new partitions
+- always make append deliberate
+
+
+Important lesson
+
+- overwrite supports idempotent reruns for full extracts
+- append is useful only for real incremental loads
+- rerunnability is not only about code restart, it is also about preventing duplicate historical data
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
+--phase 8 completed in this project
+
+Phase 8 validation result in this project
+
+Rerunnability design has been implemented successfully.
+
+What was validated:
+
+- overwrite is the default rerun-safe mode for Bronze
+- overwrite is the default rerun-safe mode for Silver
+- targeted reruns are supported for Bronze and Silver
+- RunId is printed and passed in pipeline runs
+- append with all Bronze tables is blocked by default
+
+Proof of validation:
+
+When Bronze was triggered in append mode with all tables, the pipeline failed intentionally with:
+
+Append mode with --tables all is blocked by default.
+
+Meaning of successful result:
+
+- accidental full snapshot replay is prevented
+- reruns are controlled, not automatic
+- failed tables can be rerun individually
+- pipeline restart behavior is safer and more production-like
+
+Example safe rerun commands:
+
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -BronzeMode overwrite
+.\run_pipeline.ps1 -SilverTables demographic biometric
 
 
 ----------------------------------------------------
