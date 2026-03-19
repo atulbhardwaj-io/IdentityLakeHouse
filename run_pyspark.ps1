@@ -32,7 +32,7 @@ $pysparkCmd = @"
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
 --conf spark.sql.catalogImplementation=hive \
 --conf spark.sql.warehouse.dir=$WarehouseDir \
---conf javax.jdo.option.ConnectionURL=$MetastoreUrl
+--conf 'javax.jdo.option.ConnectionURL=$MetastoreUrl'
 "@
 
 Invoke-InSparkContainer $pysparkCmd

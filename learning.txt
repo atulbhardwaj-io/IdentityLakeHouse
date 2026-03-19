@@ -1,0 +1,242 @@
+------------------------------------------------------------------------------------
+
+--creation of catalog for a project 
+
+How to build this from scratch in any project
+
+The pattern is always:
+
+Create a Spark session with metastore + warehouse support.
+Write your data as Delta/Parquet files to a stable path.
+Create a database/schema like bronze.
+Register tables pointing to those paths.
+Always reopen Spark with the same metastore config.
+Minimal example:
+
+spark = (
+    SparkSession.builder
+    .appName("MyProject")
+    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .config("spark.sql.warehouse.dir", "/app/spark-warehouse")
+    .config("javax.jdo.option.ConnectionURL", "jdbc:derby:;databaseName=/app/metastore_db;create=true")
+    .enableHiveSupport()
+    .getOrCreate()
+)
+
+df.write.format("delta").mode("overwrite").save("/app/data/bronze/customers")
+
+spark.sql("CREATE DATABASE IF NOT EXISTS bronze")
+spark.sql("""
+    CREATE TABLE IF NOT EXISTS bronze.customers
+    USING DELTA
+    LOCATION '/app/data/bronze/customers'
+""")
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
+--partitioning in a project
+
+When to apply partitioning in any project
+
+Apply partitioning when:
+
+- table is large
+- filtered queries are common
+- same filter column is used again and again
+- partition column has reasonable cardinality
+
+Good partition columns:
+
+- date
+- year
+- month
+- low-cardinality status columns
+
+Avoid partitioning on:
+
+- user_id
+- transaction_id
+- pincode
+- very high-cardinality columns
+
+Simple rule:
+
+Partition by columns used often in WHERE filters.
+Do not create too many partitions.
+Do not partition very small tables unnecessarily.
+
+
+How partitioning is applied in this project
+
+In this project, partitioning is applied at Delta write time.
+
+Main files:
+
+- scripts/spark/csv_to_delta.py
+- scripts/spark/bronze_to_silver.py
+
+Project partition strategy:
+
+- Bronze fact-style tables partition by date
+- Silver fact-style tables partition by date
+- scheme_master_raw partitions by active_flag
+- scheme_master_raw_valid partitions by active_flag
+
+Why date was chosen:
+
+- most tables are time-series style
+- project grain is based on date + location
+- date is commonly used for filtering
+- date has much lower partition explosion than state + district + pincode
+
+Why state/district/pincode were not chosen:
+
+- too many folders
+- too many small files
+- slower metadata handling
+- bad long-term scalability
+
+
+General process to create partitioned Delta tables
+
+1. Understand query pattern.
+2. Identify the most common filter column.
+3. Check cardinality of that column.
+4. Choose a stable partition strategy.
+5. Write Delta table with partitionBy.
+6. Register the table in catalog if needed.
+7. Validate partitioning using Spark SQL.
+
+
+Minimal example
+
+df.write.format("delta").partitionBy("date").mode("overwrite").save("/app/data/bronze/customers")
+
+
+How it is done in this project
+
+In csv_to_delta.py:
+
+- partition strategy is stored in PARTITION_COLS_BY_TABLE
+- date columns are normalized before writing
+- writer.partitionBy(*partition_cols) is used before save
+
+In bronze_to_silver.py:
+
+- Silver uses the same partition strategy map
+- partition columns are resolved table by table
+- date partition column is normalized before write
+- overwriteSchema is used to safely handle schema changes
+
+
+Conceptual example
+
+df.write.format("delta").partitionBy("date").save(path)
+
+This creates folders like:
+
+table/
+  _delta_log/
+  date=2025-03-01/
+  date=2025-03-02/
+
+
+How Spark uses partitioning
+
+If query is:
+
+SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-01'
+
+Spark can skip other date folders.
+This is called partition pruning.
+
+
+How to verify partitioning
+
+In pyspark:
+
+spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
+spark.sql("SHOW PARTITIONS bronze.demographic").show(20, truncate=False)
+
+spark.sql("DESCRIBE DETAIL silver.demographic_valid").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
+spark.sql("SHOW PARTITIONS silver.demographic_valid").show(20, truncate=False)
+
+To check pruning:
+
+spark.sql("EXPLAIN SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-01'").show(truncate=False)
+
+
+Important note
+
+Changing code alone does not partition old data automatically.
+Tables must be rewritten after partition logic is added.
+
+In this project, after code change:
+
+- rerun Bronze to recreate partitioned Bronze tables
+- rerun Silver to recreate partitioned Silver tables
+
+
+Final understanding
+
+- partitioning is a physical storage optimization
+- catalog is logical metadata
+- Delta folder stores actual partitioned files
+- metastore stores table registration
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
+--phase 7 completed in this project
+
+Phase 7 validation result in this project
+
+Bronze partitioning has been validated successfully.
+
+Validated Bronze tables:
+
+- aadhaar_voter_link_raw -> [date]
+- biometric -> [date]
+- demographic -> [date]
+- district_scheme_payment_raw -> [date]
+- enrolment -> [date]
+- population_raw -> [date]
+- scheme_beneficiary_raw -> [date]
+- scheme_master_raw -> [active_flag]
+- voter_registry_raw -> [date]
+
+How validation was done:
+
+- table registration was recreated in bronze catalog where needed
+- DESCRIBE DETAIL was used for each Bronze table
+- partitionColumns output was checked
+- data folder load was tested
+- demographic table date null count was verified as 0
+
+Proof command used:
+
+spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
+
+Meaning of successful result:
+
+- if partitionColumns shows [date], table is partitioned by date
+- if partitionColumns shows [active_flag], table is partitioned by active_flag
+- query pruning can work when filters use the partition column
+
+Important lesson from this project:
+
+- physical folder check alone is not enough
+- best validation is DESCRIBE DETAIL
+- registration issue and partitioning issue are different things
+- Delta data can exist even when catalog table is missing
+
+
+----------------------------------------------------
