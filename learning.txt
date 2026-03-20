@@ -138,6 +138,58 @@ Bronze final deliverable in this project
 
 ------------------------------------------------------------------------------------
 
+--silver phase 1 bronze data loading and test copy
+
+Concepts used
+
+- Delta table reads
+- layer isolation
+- trusted source boundary
+- exact test copy handling
+
+Why this matters
+
+- Silver should always start from Bronze, not from raw CSV again
+- once Silver trusted tables are created, testing should not change the main trusted output
+- a separate test copy lets you experiment safely
+- exact copying is useful when you want the test table to preserve the same `_delta_log`, parquet files, and partition folders
+
+How it is handled in this project
+
+- Bronze is the only source for building main Silver tables
+- main Silver tables are stored as `*_valid`
+- test Silver tables are stored as `*_valid_test`
+- file used for exact test copy:
+  - scripts/spark/silver_to_test.py
+- this script now does a folder clone from `*_valid` to `*_valid_test`
+- it does not do Spark read and rewrite
+- because of that, the physical structure stays the same in both source and test copy
+
+Example
+
+- demographic_valid -> demographic_valid_test
+- enrolment_valid -> enrolment_valid_test
+- voter_registry_raw_valid -> voter_registry_raw_valid_test
+
+Important understanding
+
+- if you use Spark read + write, logical data may be same but physical files will differ
+- if you use folder copy, physical files and partition folders remain exact same
+- use `*_valid` as the trusted Silver output
+- use `*_valid_test` for safe experiments and transformations
+
+Outcome
+
+- Silver Phase 1 starts from trusted Bronze data
+- main Silver output stays protected
+- test copies can be created exactly from main Silver tables
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
 --partitioning in a project
 
 When to apply partitioning in any project
@@ -181,8 +233,8 @@ Main files:
 
 Project partition strategy:
 
-- Bronze fact-style tables partition by date
-- Silver fact-style tables partition by date
+- Bronze fact-style tables partition by partition_year + partition_month
+- Silver fact-style tables partition by partition_year + partition_month
 - scheme_master_raw partitions by active_flag
 - scheme_master_raw_valid partitions by active_flag
 
@@ -192,6 +244,7 @@ Why date was chosen:
 - project grain is based on date + location
 - date is commonly used for filtering
 - date has much lower partition explosion than state + district + pincode
+- for larger scale storage, year + month is better than one partition per day
 
 Why state/district/pincode were not chosen:
 
@@ -214,7 +267,7 @@ General process to create partitioned Delta tables
 
 Minimal example
 
-df.write.format("delta").partitionBy("date").mode("overwrite").save("/app/data/bronze/customers")
+df.write.format("delta").partitionBy("partition_year", "partition_month").mode("overwrite").save("/app/data/bronze/customers")
 
 
 How it is done in this project
@@ -222,27 +275,29 @@ How it is done in this project
 In csv_to_delta.py:
 
 - partition strategy is stored in PARTITION_COLS_BY_TABLE
-- date columns are normalized before writing
+- date column is normalized before writing
+- partition_year and partition_month are derived from date
 - writer.partitionBy(*partition_cols) is used before save
 
 In bronze_to_silver.py:
 
 - Silver uses the same partition strategy map
 - partition columns are resolved table by table
-- date partition column is normalized before write
+- date column is normalized before write
+- partition_year and partition_month are derived before write
 - overwriteSchema is used to safely handle schema changes
 
 
 Conceptual example
 
-df.write.format("delta").partitionBy("date").save(path)
+df.write.format("delta").partitionBy("partition_year", "partition_month").save(path)
 
 This creates folders like:
 
 table/
   _delta_log/
-  date=2025-03-01/
-  date=2025-03-02/
+  partition_year=2025/
+  partition_month=3/
 
 
 How Spark uses partitioning
@@ -251,7 +306,7 @@ If query is:
 
 SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-01'
 
-Spark can skip other date folders.
+Spark can use the derived partition columns behind the Delta layout and avoid scanning unrelated year/month partitions.
 This is called partition pruning.
 
 
@@ -260,10 +315,8 @@ How to verify partitioning
 In pyspark:
 
 spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
-spark.sql("SHOW PARTITIONS bronze.demographic").show(20, truncate=False)
 
 spark.sql("DESCRIBE DETAIL silver.demographic_valid").select("partitionColumns", "numFiles", "sizeInBytes").show(truncate=False)
-spark.sql("SHOW PARTITIONS silver.demographic_valid").show(20, truncate=False)
 
 To check pruning:
 
@@ -302,15 +355,15 @@ Bronze partitioning has been validated successfully.
 
 Validated Bronze tables:
 
-- aadhaar_voter_link_raw -> [date]
-- biometric -> [date]
-- demographic -> [date]
-- district_scheme_payment_raw -> [date]
-- enrolment -> [date]
-- population_raw -> [date]
-- scheme_beneficiary_raw -> [date]
+- aadhaar_voter_link_raw -> [partition_year, partition_month]
+- biometric -> [partition_year, partition_month]
+- demographic -> [partition_year, partition_month]
+- district_scheme_payment_raw -> [partition_year, partition_month]
+- enrolment -> [partition_year, partition_month]
+- population_raw -> [partition_year, partition_month]
+- scheme_beneficiary_raw -> [partition_year, partition_month]
 - scheme_master_raw -> [active_flag]
-- voter_registry_raw -> [date]
+- voter_registry_raw -> [partition_year, partition_month]
 
 How validation was done:
 
@@ -326,7 +379,7 @@ spark.sql("DESCRIBE DETAIL bronze.demographic").select("partitionColumns", "numF
 
 Meaning of successful result:
 
-- if partitionColumns shows [date], table is partitioned by date
+- if partitionColumns shows [partition_year, partition_month], table is partitioned by year and month derived from date
 - if partitionColumns shows [active_flag], table is partitioned by active_flag
 - query pruning can work when filters use the partition column
 
