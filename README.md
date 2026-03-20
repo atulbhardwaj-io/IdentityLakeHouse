@@ -349,6 +349,18 @@ The Silver layer must guarantee:
 - Late arriving data support
 - Measurable data quality
 
+### Silver Transformation Working Guide
+
+For practical Silver transformation workflows in this repo, see:
+- [SILVER_TRANSFORM_METHODS.md](/abs/path/c:/Users/Atul%20bhardwaj/Desktop/coding%202%20year/IdentityLakehouse/SILVER_TRANSFORM_METHODS.md)
+
+This guide covers:
+- Spark SQL script based Silver transforms
+- PySpark script based Silver transforms
+- quick `pyspark` checks and temporary changes
+- recommended per-table transformation folders such as `population_transform`, `demographic_transform`, and similar dataset-specific workspaces
+- how to use `silver_copy` and `*_valid_test` safely before touching trusted Silver outputs
+
 ### Silver Layer Implementation Phases
 
 Below are the phases you should implement, what you need to learn, and how to implement them conceptually.
@@ -369,11 +381,17 @@ Below are the phases you should implement, what you need to learn, and how to im
 - Load Bronze tables from Delta paths or Bronze catalog tables.
 - Treat Bronze as the only source of truth for Silver transformations.
 - Read data at stable table grain before applying any quality or standardization logic.
+- Keep a separate Silver test copy when you want to experiment without touching the main trusted Silver tables.
+- In this repo, `scripts/spark/silver_to_test.py` copies `*_valid` tables into matching `*_valid_test` folders.
+- The current test-copy design is an exact folder clone, not a Spark rewrite, so `_delta_log`, parquet files, and partition folders are preserved exactly.
+- This means `demographic_valid` becomes `demographic_valid_test`, `enrolment_valid` becomes `enrolment_valid_test`, and so on.
+- Use the main `*_valid` table as the source of truth and use `*_valid_test` only for safe testing or trial transforms.
 
 #### Outcome
 - Silver pipeline reads from consistent Bronze snapshots.
 - The transformation layer starts from replay-safe Delta inputs.
 - Layer separation is maintained properly.
+- Test experimentation can happen on exact Silver copies without modifying production-style Silver outputs.
 
 ### Phase 2: Schema Normalization
 #### Concepts Used
