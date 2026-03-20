@@ -1,29 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 from pathlib import Path
-
-from pyspark.sql import SparkSession
-
-
-def build_spark(app_name: str, master: str) -> SparkSession:
-    return (
-        SparkSession.builder.appName(app_name)
-        .master(master)
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
-        .getOrCreate()
-    )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Copy Silver *_valid Delta tables to *_valid_test tables."
-    )
-    parser.add_argument(
-        "--master",
-        default="spark://spark-master:7077",
-        help="Spark master URL.",
+        description="Copy Silver *_valid Delta table folders to exact *_valid_test folder clones."
     )
     parser.add_argument(
         "--silver-root",
@@ -38,9 +22,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=["overwrite", "append"],
+        choices=["overwrite"],
         default="overwrite",
-        help="Write mode for *_valid_test tables.",
+        help="Only overwrite is supported because exact-copy mode replaces the destination folder.",
     )
     return parser.parse_args()
 
@@ -67,6 +51,12 @@ def resolve_tables(requested: list[str], silver_root: Path) -> list[str]:
     return requested
 
 
+def clone_delta_folder(src: Path, dst: Path) -> None:
+    if dst.exists():
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst)
+
+
 def main() -> None:
     args = parse_args()
     silver_root = Path(args.silver_root)
@@ -76,28 +66,17 @@ def main() -> None:
             f"No Silver tables selected. Check --silver-root and --tables. silver_root={silver_root}"
         )
 
-    spark = build_spark("silver-to-test-copy", args.master)
-    try:
-        for table in tables:
-            src = silver_root / f"{table}_valid"
-            dst = silver_root / f"{table}_valid_test"
+    for table in tables:
+        src = silver_root / f"{table}_valid"
+        dst = silver_root / f"{table}_valid_test"
 
-            if not (src / "_delta_log").exists():
-                print(f"[SKIP] Source not found or not Delta: {src}")
-                continue
+        if not (src / "_delta_log").exists():
+            print(f"[SKIP] Source not found or not Delta: {src}")
+            continue
 
-            df = spark.read.format("delta").load(str(src))
-            (
-                df.write.format("delta")
-                .mode(args.mode)
-                .option("overwriteSchema", "true")
-                .save(str(dst))
-            )
-
-            out_count = spark.read.format("delta").load(str(dst)).count()
-            print(f"[OK] {src.name} -> {dst.name} | rows={out_count}")
-    finally:
-        spark.stop()
+        clone_delta_folder(src, dst)
+        file_count = sum(1 for path in dst.rglob("*") if path.is_file())
+        print(f"[OK] {src.name} -> {dst.name} | exact folder copy complete | files={file_count}")
 
 
 if __name__ == "__main__":

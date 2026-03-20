@@ -138,6 +138,58 @@ Bronze final deliverable in this project
 
 ------------------------------------------------------------------------------------
 
+--silver phase 1 bronze data loading and test copy
+
+Concepts used
+
+- Delta table reads
+- layer isolation
+- trusted source boundary
+- exact test copy handling
+
+Why this matters
+
+- Silver should always start from Bronze, not from raw CSV again
+- once Silver trusted tables are created, testing should not change the main trusted output
+- a separate test copy lets you experiment safely
+- exact copying is useful when you want the test table to preserve the same `_delta_log`, parquet files, and partition folders
+
+How it is handled in this project
+
+- Bronze is the only source for building main Silver tables
+- main Silver tables are stored as `*_valid`
+- test Silver tables are stored as `*_valid_test`
+- file used for exact test copy:
+  - scripts/spark/silver_to_test.py
+- this script now does a folder clone from `*_valid` to `*_valid_test`
+- it does not do Spark read and rewrite
+- because of that, the physical structure stays the same in both source and test copy
+
+Example
+
+- demographic_valid -> demographic_valid_test
+- enrolment_valid -> enrolment_valid_test
+- voter_registry_raw_valid -> voter_registry_raw_valid_test
+
+Important understanding
+
+- if you use Spark read + write, logical data may be same but physical files will differ
+- if you use folder copy, physical files and partition folders remain exact same
+- use `*_valid` as the trusted Silver output
+- use `*_valid_test` for safe experiments and transformations
+
+Outcome
+
+- Silver Phase 1 starts from trusted Bronze data
+- main Silver output stays protected
+- test copies can be created exactly from main Silver tables
+
+
+----------------------------------------------------
+
+
+------------------------------------------------------------------------------------
+
 --partitioning in a project
 
 When to apply partitioning in any project
