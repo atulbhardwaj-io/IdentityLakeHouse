@@ -92,6 +92,17 @@ scripts/silver_layer/*_valid_test/
 scripts/silver_layer/sql_work/
 
 # ------------------------------
+# Silver transform workspace temp artifacts
+# ------------------------------
+scripts/silver_layer/*_transform/__pycache__/
+scripts/silver_layer/*_transform/.tmp/
+scripts/silver_layer/*_transform/output/
+scripts/silver_layer/*_transform/*.log
+scripts/silver_layer/*_transform/*.tmp
+scripts/silver_layer/*_transform/*.bak
+scripts/silver_layer/*_transform/*.swp
+
+# ------------------------------
 # OS / local env / logs
 # ------------------------------
 .DS_Store
