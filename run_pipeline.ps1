@@ -1,6 +1,8 @@
 param(
     [string]$ContainerName = "spark-master",
     [string]$MasterUrl = "spark://spark-master:7077",
+    [string]$WarehouseDir = "/app/spark-warehouse",
+    [string]$MetastoreUrl = "jdbc:derby:;databaseName=/app/metastore_db;create=true",
     [string]$RunId = ("run_" + (Get-Date -Format "yyyyMMdd_HHmmss")),
     [string[]]$BronzeTables = @("all"),
     [ValidateSet("overwrite", "append")][string]$BronzeMode = "overwrite",
@@ -29,6 +31,8 @@ function Invoke-InSparkContainer {
 Write-Host "== Pipeline Start ==" -ForegroundColor Cyan
 Write-Host "Container: $ContainerName"
 Write-Host "Master:    $MasterUrl"
+Write-Host "Warehouse: $WarehouseDir"
+Write-Host "Metastore: $MetastoreUrl"
 Write-Host "RunId:     $RunId"
 Write-Host "Bronze:    $BronzeMode | Tables: $($BronzeTables -join ', ')"
 Write-Host "Silver:    $SilverMode | Tables: $($SilverTables -join ', ')"
@@ -46,6 +50,9 @@ if ($RunCsvToBronze) {
 --conf spark.jars.ivy=/tmp/.ivy2 \
 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+--conf spark.sql.catalogImplementation=hive \
+--conf spark.sql.warehouse.dir=$WarehouseDir \
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=$MetastoreUrl' \
 /app/scripts/spark/csv_to_delta.py \
 --tables $bronzeTableArgs \
 --mode $BronzeMode \
@@ -66,6 +73,9 @@ if ($RunBronzeValidation) {
 --conf spark.jars.ivy=/tmp/.ivy2 \
 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+--conf spark.sql.catalogImplementation=hive \
+--conf spark.sql.warehouse.dir=$WarehouseDir \
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=$MetastoreUrl' \
 /app/scripts/spark/validate_bronze.py \
 --master $MasterUrl \
 --tables $bronzeTableArgs
@@ -85,6 +95,9 @@ if (-not $SkipBronzeToSilver) {
 --conf spark.jars.ivy=/tmp/.ivy2 \
 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+--conf spark.sql.catalogImplementation=hive \
+--conf spark.sql.warehouse.dir=$WarehouseDir \
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=$MetastoreUrl' \
 --conf spark.executor.cores=1 \
 --conf spark.executor.memory=1g \
 --conf spark.cores.max=2 \
@@ -108,6 +121,9 @@ if ($RunAadhaarTransform) {
 --conf spark.jars.ivy=/tmp/.ivy2 \
 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
 --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+--conf spark.sql.catalogImplementation=hive \
+--conf spark.sql.warehouse.dir=$WarehouseDir \
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=$MetastoreUrl' \
 /app/scripts/silver_layer/transform_aadhaar_voter_link_silver.py \
 --input-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test \
 --output-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test \

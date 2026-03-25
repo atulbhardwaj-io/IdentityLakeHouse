@@ -18,6 +18,10 @@ from pyspark.sql.types import (
 )
 
 
+SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
+HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
+
+
 @dataclass(frozen=True)
 class TableConfig:
     name: str
@@ -166,8 +170,11 @@ def build_spark(app_name: str) -> SparkSession:
         .config("spark.hadoop.io.native.lib.available", "false")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config("spark.sql.catalogImplementation", "hive")
+        .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
+        .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
     )
-    return configure_spark_with_delta_pip(builder).getOrCreate()
+    return configure_spark_with_delta_pip(builder).enableHiveSupport().getOrCreate()
 
 
 def parse_date_col(df: DataFrame, col_name: str) -> DataFrame:

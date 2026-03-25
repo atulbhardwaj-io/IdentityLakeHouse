@@ -1,11 +1,18 @@
 from pyspark.sql import SparkSession
 
+SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
+HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
+
 # Create Spark session with Delta support
 spark = (
     SparkSession.builder
     .appName("DemographicSQLQuery")
+    .config("spark.sql.catalogImplementation", "hive")
     .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
     .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+    .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
+    .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
+    .enableHiveSupport()
     .getOrCreate()
 )
 
