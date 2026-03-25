@@ -2,6 +2,9 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 import time
 
+SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
+HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
+
 def create_spark_session():
     spark = (
         SparkSession.builder
@@ -11,8 +14,12 @@ def create_spark_session():
         .config("spark.eventLog.enabled", "true")
         .config("spark.eventLog.dir", "/opt/spark/events")
         # Delta Lake Config
+        .config("spark.sql.catalogImplementation", "hive")
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
+        .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
+        .enableHiveSupport()
         .getOrCreate()
     )
     return spark

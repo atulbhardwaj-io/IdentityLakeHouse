@@ -8,6 +8,8 @@ from pyspark.sql import functions as F
 
 
 DEFAULT_TABLES = ["enrolment", "demographic", "biometric"]
+SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
+HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
 PARTITION_COLS_BY_TABLE = {
     "aadhaar_voter_link_raw": ["partition_year", "partition_month"],
     "biometric": ["partition_year", "partition_month"],
@@ -27,6 +29,10 @@ def build_spark(app_name: str, master: str) -> SparkSession:
         .master(master)
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config("spark.sql.catalogImplementation", "hive")
+        .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
+        .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
+        .enableHiveSupport()
         .getOrCreate()
     )
 

@@ -24,6 +24,8 @@ BIOMETRIC_CSV = (
     "/app/data/api_data_aadhar_biometric/api_data_aadhar_biometric/"
     "api_data_aadhar_biometric_combined.csv"
 )
+SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
+HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
 REQUIRED_METADATA_COLS = ["bronze_ingest_ts", "bronze_source_file", "bronze_batch_id"]
 
 
@@ -33,6 +35,10 @@ def build_spark(master: str) -> SparkSession:
         .master(master)
         .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
         .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config("spark.sql.catalogImplementation", "hive")
+        .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
+        .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
+        .enableHiveSupport()
         .getOrCreate()
     )
 

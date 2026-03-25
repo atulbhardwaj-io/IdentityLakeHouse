@@ -3,10 +3,17 @@ import argparse
 from pyspark.sql import SparkSession
 
 
+SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
+HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
+
+
 def build_spark(app_name: str, master: str, file_format: str) -> SparkSession:
     builder = (
         SparkSession.builder.appName(app_name)
         .master(master)
+        .config("spark.sql.catalogImplementation", "hive")
+        .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
+        .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
     )
 
     if file_format == "delta":
@@ -15,7 +22,7 @@ def build_spark(app_name: str, master: str, file_format: str) -> SparkSession:
             .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
         )
 
-    return builder.getOrCreate()
+    return builder.enableHiveSupport().getOrCreate()
 
 
 def main() -> None:
