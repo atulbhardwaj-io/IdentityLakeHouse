@@ -361,6 +361,29 @@ This guide covers:
 - recommended per-table transformation folders such as `population_transform`, `demographic_transform`, and similar dataset-specific workspaces
 - how to use `silver_copy` and `*_valid_test` safely before touching trusted Silver outputs
 
+### Current Silver Layer Focus
+
+The active development focus is the Silver layer.
+
+Current work is centered on schema normalization and repeatable PySpark-based standardization:
+
+- Build a reusable SparkSession-based transformation flow.
+- Read messy or inconsistent Bronze/Silver test inputs.
+- Convert incoming schemas into expected Silver schemas.
+- Standardize column names, column order, and data types.
+- Fix naming issues such as raw symbols becoming unclear column names.
+- Use `silver_copy` and `*_valid_test` tables for safe experimentation.
+- Promote the logic to trusted `silver.*_valid` tables only after test validation passes.
+
+Current Silver development examples:
+
+- `silver_copy.enrolment_valid_test`
+- `silver_copy.demographic_valid_test`
+- `silver_copy.biometric_valid_test`
+- `scripts/spark/biometric_transformation/standard_shema.py`
+
+The goal is to avoid manual table edits and instead build one repeatable PySpark transformation step that can be rerun whenever new messy data arrives.
+
 ### Silver Layer Implementation Phases
 
 Below are the phases you should implement, what you need to learn, and how to implement them conceptually.
@@ -415,6 +438,13 @@ Below are the phases you should implement, what you need to learn, and how to im
 - Silver schemas become stable and predictable.
 - Downstream consumers face fewer surprises.
 - Join behavior and documentation become clearer.
+
+#### Current Work In This Repo
+- Expected Silver schemas are being checked for enrolment, demographic, and biometric datasets.
+- Spark SQL `DESCRIBE` checks are being used to compare actual table schemas with expected Silver structure.
+- Test tables in `silver_copy` are being used before changing trusted Silver outputs.
+- Biometric schema normalization has identified a naming issue: `bio_age_17_` should be standardized to a clearer name such as `bio_age_17_plus` or `bio_age_18_plus`, depending on the source meaning.
+- The next implementation step is to encode this schema mapping in PySpark so reruns automatically convert messy source columns into the expected Silver schema.
 
 ### Phase 3: Data Type Validation
 #### Concepts Used
@@ -1811,12 +1841,184 @@ This stage produces:
 - Incident response readiness
 - A fully operational analytics service
 
+## Stage 13: Cloud Migration and Productionization Plan
+### Objectives
+Move the locally validated Identity Lakehouse into a cloud-ready architecture after the core pipeline logic is stable.
+
+The intent is to first prove the Spark, Delta Lake, Medallion, validation, and rerun logic locally, then migrate the tested design to cloud services for scale, orchestration, governance, monitoring, and dashboard consumption.
+
+### Why Local First, Cloud Later
+- Local development gives faster iteration while building the core PySpark transformation logic.
+- It separates data pipeline correctness from cloud infrastructure complexity.
+- It reduces cost while the Bronze, Silver, and Gold logic is still changing.
+- Once the pipeline is stable, cloud migration becomes a controlled productionization step instead of experimental debugging.
+- This approach helps demonstrate both skills: building a working data pipeline and migrating it toward a production cloud lakehouse.
+
+Interview explanation:
+
+```text
+I intentionally followed a local-to-cloud approach. First, I validated the pipeline logic locally using PySpark and Delta Lake: ingestion, schema normalization, data quality rules, partitioning, and rerun safety. After that, I designed the cloud migration so the same lakehouse pattern could be productionized with cloud storage, managed Spark, orchestration, governance, monitoring, and BI reporting.
+```
+
+### Recommended Cloud Target: Azure
+Azure fits this project well because the lakehouse can map cleanly to ADLS Gen2, Databricks, Power BI, Purview, and Azure Monitor.
+
+Cloud architecture:
+
+```text
+Source files / operational systems
+        ↓
+Azure Data Lake Storage Gen2 - raw zone
+        ↓
+Azure Databricks / Spark
+        ↓
+Delta Bronze tables
+        ↓
+Delta Silver tables
+        ↓
+Delta Gold tables
+        ↓
+Power BI dashboards
+        ↓
+Purview governance + Azure Monitor observability
+```
+
+### Local-to-Cloud Component Mapping
+
+| Local Component | Cloud Component |
+|---|---|
+| Local `data/` folder | Azure Data Lake Storage Gen2 raw container/path |
+| Local Bronze Delta folders | ADLS Gen2 Bronze Delta path |
+| Local Silver Delta folders | ADLS Gen2 Silver Delta path |
+| Local Gold Delta folders | ADLS Gen2 Gold Delta path |
+| Local PySpark scripts | Azure Databricks notebooks or Databricks jobs |
+| `run_pipeline.ps1` | Databricks Workflows or Azure Data Factory pipeline |
+| Local Hive/Derby metastore | Databricks Unity Catalog or managed Hive metastore |
+| Local validation commands | Automated validation jobs |
+| Local logs/console output | Azure Monitor and Log Analytics |
+| Manual secrets/config | Azure Key Vault |
+| Gold query outputs | Power BI semantic model and reports |
+
+### Proposed Cloud Storage Layout
+
+```text
+abfss://identity-lakehouse@<storage-account>.dfs.core.windows.net/
+    raw/
+        enrolment/
+        demographic/
+        biometric/
+    bronze/
+        enrolment/
+        demographic/
+        biometric/
+    silver/
+        enrolment_valid/
+        demographic_valid/
+        biometric_valid/
+    gold/
+        dim_date/
+        dim_location/
+        fact_enrolment/
+        fact_demographic/
+        fact_biometric/
+        kpi_identity_coverage_daily/
+    checkpoints/
+    audit/
+```
+
+### Cloud Implementation Phases
+
+#### Phase 1: Local Completion Gate
+- Bronze ingestion and validation must pass locally.
+- Silver schema normalization and quality rules must pass locally.
+- Basic Gold facts, dimensions, and KPI outputs should exist.
+- Pipeline rerun behavior must be predictable.
+- Paths should be configurable so local paths can later be replaced with cloud paths.
+
+#### Phase 2: Cloud Storage Setup
+- Create ADLS Gen2 storage account.
+- Create raw, bronze, silver, gold, checkpoints, and audit zones.
+- Upload sample raw data to the cloud raw zone.
+- Define folder and table naming conventions.
+
+#### Phase 3: Managed Spark Setup
+- Create Azure Databricks workspace.
+- Configure cluster/runtime with Delta Lake support.
+- Connect Databricks to ADLS Gen2 using service principal, managed identity, or workspace identity.
+- Store credentials and connection values in Azure Key Vault or Databricks secrets.
+
+#### Phase 4: Code Migration
+- Move PySpark scripts into Databricks jobs or notebooks.
+- Replace hardcoded local paths with configurable base paths.
+- Use the same Bronze, Silver, and Gold transformation logic where possible.
+- Keep local and cloud configs separate.
+
+Example config direction:
+
+```json
+{
+  "environment": "azure",
+  "raw_base_path": "abfss://identity-lakehouse@<storage-account>.dfs.core.windows.net/raw",
+  "bronze_base_path": "abfss://identity-lakehouse@<storage-account>.dfs.core.windows.net/bronze",
+  "silver_base_path": "abfss://identity-lakehouse@<storage-account>.dfs.core.windows.net/silver",
+  "gold_base_path": "abfss://identity-lakehouse@<storage-account>.dfs.core.windows.net/gold"
+}
+```
+
+#### Phase 5: Orchestration
+- Convert local script execution into Databricks Workflows or Azure Data Factory pipelines.
+- Run Bronze, validation, Silver, validation, Gold, and dashboard refresh steps in order.
+- Support table-level reruns for recovery.
+- Add job parameters for environment, table list, mode, and run id.
+
+#### Phase 6: Governance and Security
+- Use Unity Catalog or Microsoft Purview for cataloging, ownership, lineage, and discovery.
+- Apply role-based access to raw, Bronze, Silver, and Gold zones.
+- Restrict sensitive columns where needed.
+- Keep audit metadata and run history queryable.
+
+#### Phase 7: Monitoring and Operations
+- Track job success/failure, runtime, row counts, and data freshness.
+- Send alerts for failed jobs or invalid quality checks.
+- Store operational logs in Azure Monitor or Log Analytics.
+- Convert manual runbooks into repeatable operational procedures.
+
+#### Phase 8: Reporting
+- Connect Power BI to Gold tables or semantic model outputs.
+- Build dashboards for state, district, scheme, enrolment, demographic, biometric, and identity coverage KPIs.
+- Validate dashboard numbers against Gold SQL queries.
+
+### Cloud Acceptance Checklist
+- Local Bronze, Silver, and Gold pipeline is stable before migration.
+- Cloud paths are configurable and not hardcoded.
+- Raw data can be loaded from ADLS Gen2.
+- Databricks can write Delta tables to Bronze, Silver, and Gold zones.
+- Cloud jobs can run in the correct dependency order.
+- Validation checks run after each major layer.
+- Gold tables are consumable by Power BI or another BI layer.
+- Governance, access, and monitoring approach is documented.
+
+### Final Result of Cloud Migration
+
+This stage produces:
+
+- A cloud-ready Identity Lakehouse architecture
+- Configurable local and cloud execution design
+- ADLS Gen2-based lake storage plan
+- Databricks/Spark production compute plan
+- Orchestrated Bronze, Silver, and Gold pipeline design
+- BI, governance, and monitoring roadmap
+
 ## Current Status Summary
 - EDA foundation: Completed
 - 14-step framework implementation: Completed
 - Enrollment/Demographic/Biometric profiling: Completed
 - Documentation artifacts: Completed
-- Bronze/Silver/Gold production pipeline: Next active build phase
+- Bronze ingestion and validation: Implemented
+- Silver layer: Active development phase
+- Current Silver focus: schema normalization, data type checking, column naming standardization, and reusable PySpark transformation flow
+- Gold layer: Planned after Silver layer stabilizes
+- Cloud migration architecture: Planned and documented as a post-local-completion productionization phase
 
 ## Appendix A: Stage-by-Stage Acceptance Checklist
 
@@ -1838,11 +2040,11 @@ Use this checklist to decide whether a stage is conceptually complete, operation
 - Bronze validation checks pass.
 
 ### Stage 4: Silver Layer
-- Cleaning rules are documented and implemented.
-- Null handling and standardization are applied consistently.
-- Invalid rows are either quarantined or explicitly handled.
-- Silver tables are registered and queryable.
-- Output is suitable for business-safe joins.
+- Bronze-to-Silver flow exists and is being refined.
+- Silver test database/table workflow exists through `silver_copy` and `*_valid_test` tables.
+- Schema normalization is the current active work.
+- Expected columns, column order, and data types are being validated table by table.
+- Cleaning, null handling, deduplication, quarantine, and full quality metrics still need to be completed before Silver is fully accepted.
 
 ### Stage 5: Gold Layer
 - Business grain is defined for each mart.
@@ -1899,6 +2101,14 @@ Use this checklist to decide whether a stage is conceptually complete, operation
 - SLA and alert expectations are defined.
 - Pilot rollout plan exists.
 - Production readiness review is completed.
+
+### Stage 13: Cloud Migration and Productionization
+- Local pipeline completion gate is defined.
+- Cloud storage, compute, orchestration, BI, governance, and monitoring mapping is documented.
+- ADLS Gen2 storage layout is planned.
+- Databricks migration approach is defined.
+- Local-to-cloud path configuration strategy is documented.
+- Cloud acceptance checklist exists.
 
 ## Appendix B: Bronze, Silver, Gold Comparison
 
@@ -2086,11 +2296,15 @@ This README now contains detailed design guidance, but some later-stage items re
 - Bronze partitioning
 - Bronze rerunnability controls
 - Bronze validation
-- Silver transformation flow
+- Bronze-to-Silver transformation flow
+- Silver test-copy workflow for safe experimentation
 - Silver partitioning
 - Spark launcher and project run scripts
 
 ### Planned but Not Yet Fully Implemented
+- Full Silver schema normalization for all datasets
+- Silver data contract enforcement
+- Silver quarantine datasets and quality scoring
 - Full Gold table build scripts
 - Data entry application
 - Streaming ingestion path
