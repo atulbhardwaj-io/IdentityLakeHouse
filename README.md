@@ -2317,3 +2317,348 @@ This README now contains detailed design guidance, but some later-stage items re
 - Documentation shows architectural intent.
 - Implemented code shows current working capability.
 - Keeping these separate makes the README more honest and more professional.
+
+
+
+
+-----------------------------------------------------
+
+Based on your **IdentityLakehouse** roadmap, here’s the **phase-by-phase tech stack** used across the whole project—from Stage 0 to Stage 13. I mapped this directly from your project document. 
+
+---
+
+# Stage 0 — Problem Definition & Scope
+
+### Tech / Skills Used
+
+* Domain modeling
+* Data modeling basics
+* Business requirement gathering
+* Architecture thinking
+* Documentation
+
+### Tools
+
+* Markdown / README
+* Diagram tools (optional)
+
+### Concepts
+
+* Data grain
+* Business keys
+* Entity relationships
+
+---
+
+# Stage 1 — EDA Foundation
+
+### Tech Used
+
+## Python
+
+* pandas
+* numpy
+
+## Jupyter Notebook
+
+## Visualization
+
+* matplotlib
+
+### Concepts
+
+* null analysis
+* duplicates
+* profiling
+* outliers
+* cardinality
+* distributions
+
+---
+
+# Stage 2 — Data Contracts & Quality Rulebook
+
+### Tech Used
+
+## Python
+
+## SQL
+
+### Data Quality Concepts
+
+* schema validation
+* type validation
+* domain validation
+* quality scoring
+
+Possible frameworks later:
+
+* Great Expectations
+
+---
+
+# Stage 3 — Bronze Layer
+
+This is your first real DE layer.
+
+### Core Tech
+
+## Apache Spark
+
+## PySpark
+
+## Delta Lake
+
+## File formats
+
+* CSV
+* JSON
+* Apache Parquet
+
+### Storage Concepts
+
+* partitioning
+* append
+* overwrite
+
+### Metadata
+
+* lineage
+* batch id
+* source file
+
+### Supporting tools
+
+* PowerShell
+* Python virtual environments
+
+---
+
+# Stage 4 — Silver Layer
+
+(Current phase)
+
+### Core Tech
+
+## Apache Spark
+
+## PySpark
+
+## Spark SQL
+
+## Delta Lake
+
+### Advanced Spark
+
+* window functions
+* repartition
+* joins
+* aggregations
+
+### Data Quality
+
+* quarantine datasets
+* deduplication
+* schema normalization
+* contract enforcement
+
+---
+
+# Stage 5 — Gold Layer
+
+### Core Tech
+
+## Spark SQL
+
+## PySpark
+
+## Delta Lake
+
+### Data Modeling
+
+* star schema
+* snowflake schema
+* fact tables
+* dimension tables
+
+### Analytics
+
+* KPI engineering
+* aggregations
+* marts
+
+---
+
+# Stage 6 — Data Entry Platform
+
+### Backend
+
+## FastAPI or Flask
+
+### Database
+
+## PostgreSQL
+
+### Frontend
+
+* HTML
+* CSS
+* JavaScript
+
+### Security
+
+* JWT
+* RBAC
+
+---
+
+# Stage 7 — Streaming (Kappa)
+
+### Core Streaming Tech
+
+## Apache Kafka
+
+## Spark Structured Streaming
+
+## Delta Lake
+
+### Concepts
+
+* watermarking
+* checkpoints
+* idempotency
+* event-time processing
+
+---
+
+# Stage 8 — Dashboard Layer
+
+### BI Tools
+
+## Microsoft Power BI
+
+### Optional
+
+* Tableau
+
+### Concepts
+
+* semantic models
+* DAX
+* KPIs
+* drill-down reports
+
+---
+
+# Stage 9 — Security & Governance
+
+### Security
+
+## Microsoft Azure services:
+
+* Azure Key Vault
+* Managed Identity
+
+### Governance
+
+* Unity Catalog
+* Purview
+
+### Concepts
+
+* RBAC
+* column masking
+* lineage
+
+---
+
+# Stage 10 — Reliability & Performance
+
+### Tech
+
+## Spark tuning
+
+## Delta optimization
+
+### Concepts
+
+* partition pruning
+* compaction
+* autoscaling
+* cluster tuning
+
+---
+
+# Stage 11 — CI/CD & Testing
+
+### Version Control
+
+## Git
+
+## GitHub
+
+### CI/CD
+
+## GitHub Actions
+
+### Testing
+
+* pytest
+
+### Quality
+
+* linting
+
+---
+
+# Stage 12 — Production Operations
+
+### Monitoring
+
+## Azure Monitor
+
+### Logging
+
+## Python logging
+
+### Alerting
+
+* SLA alerts
+
+---
+
+# Stage 13 — Cloud Productionization
+
+### Cloud Stack
+
+## Microsoft Azure
+
+### Storage
+
+* ADLS Gen2
+
+### Compute
+
+## Azure Databricks
+
+### Security
+
+* Key Vault
+
+### Governance
+
+* Purview
+
+### BI
+
+* Power BI
+
+---
+
+# Full stack of your project
+
+In one line:
+
+**Python → pandas → SQL → Spark → Delta Lake → FastAPI → PostgreSQL → Kafka → Power BI → Azure → Databricks → GitHub**
+
+That is the complete tech stack your project uses end-to-end.
