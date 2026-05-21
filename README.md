@@ -235,21 +235,24 @@ spark.sql("EXPLAIN SELECT * FROM bronze.demographic WHERE date = DATE '2025-03-0
 - Higher reliability in operations.
 
 #### Phase 8 Completed In This Repo
-- Bronze full snapshot reruns use `overwrite` by default
-- Silver reruns use `overwrite` by default
+- Bronze incremental CSV ingestion uses `append` by default
+- Silver incremental Bronze-to-Silver processing uses `append` by default
 - Pipeline supports targeted reruns by table for Bronze and Silver
 - Each pipeline run prints and passes a `RunId`
-- Full append replay is blocked by default for Bronze when `--tables all` is used
+- Bronze uses a file manifest to avoid loading the same incoming CSV file twice
+- Silver uses a processed-batch control table to avoid processing the same Bronze batch twice
 
 Example rerun commands:
 
 ```powershell
-.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -BronzeMode overwrite
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic
 .\run_pipeline.ps1 -SilverTables demographic biometric
 ```
 
 Validation signal:
-- Triggering Bronze append with all tables now fails intentionally with a safety error instead of replaying the full snapshot.
+- Running the same incremental command twice prints skip messages instead of duplicating data:
+  - `[SKIP] No new CSV files for <table>`
+  - `[SKIP] No new Bronze batches for <table>`
 
 ### Phase 9: Validation
 #### Concepts Used
@@ -314,16 +317,146 @@ Validation passes when:
 - Production data engineering mindset
 
 ### Current Bronze Commands (This Repo)
-Use project venv Python:
+Current incremental pipeline command:
 
 ```powershell
-.\venv\Scripts\python.exe scripts/bronze_layer/sql_ingestion/build_bronze_synthetic.py --tables district_scheme_payment_raw --mode overwrite
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables all
 ```
 
-Run all synthetic raw tables:
+Run one Bronze table incrementally:
+
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic
+```
+
+Legacy synthetic loader is still available for older local tests:
 
 ```powershell
 .\venv\Scripts\python.exe scripts/bronze_layer/sql_ingestion/build_bronze_synthetic.py --tables all --mode overwrite
+```
+
+## Current Incremental Loading Implementation
+
+This repo now supports incremental CSV-to-Bronze and incremental Bronze-to-Silver processing.
+
+### Raw Incoming CSV Area
+
+Future CSV files are placed permanently under:
+
+```text
+data/upcoming_data/<table_name>/year=YYYY/month=MM/day=DD/<table_name>_YYYY_MM_DD.csv
+```
+
+The first folder under `data/upcoming_data` determines the Bronze table.
+
+Example:
+
+```text
+data/upcoming_data/demographic/year=2026/month=05/day=21/demographic_2026_05_21.csv
+```
+
+This loads into:
+
+```text
+bronze.demographic
+```
+
+### Bronze Incremental Control
+
+Bronze is append-only by default.
+
+The Bronze loader reads only incoming CSV file paths that are not already present in:
+
+```text
+bronze_control.ingested_files
+/app/scripts/bronze_layer/_control/ingested_files
+```
+
+Bronze row indicators:
+
+```text
+bronze_ingest_ts
+bronze_source_file
+bronze_batch_id
+```
+
+### Silver Incremental Control
+
+Silver is append-only by default.
+
+The Silver loader reads only Bronze rows whose `bronze_batch_id` is not already present in:
+
+```text
+silver_control.processed_bronze_batches
+/app/scripts/silver_layer/_control/processed_bronze_batches
+```
+
+Silver row indicators:
+
+```text
+silver_processed_ts
+silver_run_id
+bronze_batch_id
+```
+
+### Main Incremental Commands
+
+CSV to Bronze incremental only:
+
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables all
+```
+
+CSV to Bronze incremental and Bronze to Silver incremental:
+
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables all -SilverTables all
+```
+
+Bronze to Silver incremental only:
+
+```powershell
+.\run_pipeline.ps1 -SilverTables all
+```
+
+One table end-to-end:
+
+```powershell
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables demographic -SilverTables demographic
+```
+
+Full Silver rebuild if needed:
+
+```powershell
+.\run_pipeline.ps1 -SilverTables all -SilverLoadType full -SilverMode overwrite
+```
+
+### Incremental Verification Queries
+
+Check files loaded into Bronze:
+
+```python
+spark.sql("""
+SELECT table_name, source_file_name, bronze_batch_id, row_count, status, bronze_ingest_ts
+FROM bronze_control.ingested_files
+ORDER BY bronze_ingest_ts DESC
+""").show(truncate=False)
+```
+
+Check Bronze batches processed into Silver:
+
+```python
+spark.sql("""
+SELECT table_name, bronze_batch_id, silver_run_id, input_rows, output_rows, status, processed_ts
+FROM silver_control.processed_bronze_batches
+ORDER BY processed_ts DESC
+""").show(truncate=False)
+```
+
+The quick command reference is also available in:
+
+```text
+pipeline__button.txt
 ```
 
 ## Stage 4: Silver Layer (Clean, Trusted, Contract-Enforced Data)
@@ -2015,8 +2148,10 @@ This stage produces:
 - Enrollment/Demographic/Biometric profiling: Completed
 - Documentation artifacts: Completed
 - Bronze ingestion and validation: Implemented
+- Bronze incremental CSV loading: Implemented using `data/upcoming_data` and `bronze_control.ingested_files`
+- Silver incremental Bronze-to-Silver loading: Implemented using `silver_control.processed_bronze_batches`
 - Silver layer: Active development phase
-- Current Silver focus: schema normalization, data type checking, column naming standardization, and reusable PySpark transformation flow
+- Current Silver focus: schema normalization, data type checking, column naming standardization, reusable PySpark transformation flow, and future quality/quarantine rules
 - Gold layer: Planned after Silver layer stabilizes
 - Cloud migration architecture: Planned and documented as a post-local-completion productionization phase
 
@@ -2036,11 +2171,13 @@ Use this checklist to decide whether a stage is conceptually complete, operation
 - Bronze tables are queryable by name.
 - Metadata columns are present for lineage.
 - Partitioning strategy is applied and validated.
+- Incremental file loading is controlled by `bronze_control.ingested_files`.
 - Rerun behavior is controlled and documented.
 - Bronze validation checks pass.
 
 ### Stage 4: Silver Layer
-- Bronze-to-Silver flow exists and is being refined.
+- Bronze-to-Silver incremental flow exists and is being refined.
+- Processed Bronze batches are tracked in `silver_control.processed_bronze_batches`.
 - Silver test database/table workflow exists through `silver_copy` and `*_valid_test` tables.
 - Schema normalization is the current active work.
 - Expected columns, column order, and data types are being validated table by table.

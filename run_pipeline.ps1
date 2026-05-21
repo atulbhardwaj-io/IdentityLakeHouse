@@ -5,9 +5,13 @@ param(
     [string]$MetastoreUrl = "jdbc:derby:;databaseName=/app/metastore_db;create=true",
     [string]$RunId = ("run_" + (Get-Date -Format "yyyyMMdd_HHmmss")),
     [string[]]$BronzeTables = @("all"),
-    [ValidateSet("overwrite", "append")][string]$BronzeMode = "overwrite",
+    [ValidateSet("overwrite", "append")][string]$BronzeMode = "append",
+    [ValidateSet("landing", "legacy", "both")][string]$BronzeSourceMode = "landing",
+    [string]$RawLandingRoot = "/app/data/upcoming_data",
+    [switch]$ForceBronzeReprocess,
     [string[]]$SilverTables = @("all"),
-    [ValidateSet("overwrite", "append")][string]$SilverMode = "overwrite",
+    [ValidateSet("overwrite", "append")][string]$SilverMode = "append",
+    [ValidateSet("incremental", "full")][string]$SilverLoadType = "incremental",
     [switch]$RunCsvToBronze,
     [switch]$RunBronzeValidation,
     [switch]$SkipBronzeToSilver,
@@ -35,7 +39,8 @@ Write-Host "Warehouse: $WarehouseDir"
 Write-Host "Metastore: $MetastoreUrl"
 Write-Host "RunId:     $RunId"
 Write-Host "Bronze:    $BronzeMode | Tables: $($BronzeTables -join ', ')"
-Write-Host "Silver:    $SilverMode | Tables: $($SilverTables -join ', ')"
+Write-Host "BronzeSrc: $BronzeSourceMode | RawLandingRoot: $RawLandingRoot"
+Write-Host "Silver:    $SilverMode | LoadType: $SilverLoadType | Tables: $($SilverTables -join ', ')"
 
 # Ensure writable Ivy cache inside container (fixes permission issues under /home/spark/.ivy2).
 Invoke-InSparkContainer "mkdir -p /tmp/.ivy2/cache /tmp/.ivy2/jars"
@@ -43,6 +48,10 @@ Invoke-InSparkContainer "mkdir -p /tmp/.ivy2/cache /tmp/.ivy2/jars"
 if ($RunCsvToBronze) {
     Write-Host "`n[0/2] CSV -> Bronze load..." -ForegroundColor Yellow
     $bronzeTableArgs = $BronzeTables -join " "
+    $forceBronzeReprocessArg = ""
+    if ($ForceBronzeReprocess) {
+        $forceBronzeReprocessArg = " --force-reprocess"
+    }
     $csvToBronzeCmd = @"
 /opt/spark/bin/spark-submit \
 --master $MasterUrl \
@@ -56,7 +65,9 @@ if ($RunCsvToBronze) {
 /app/scripts/spark/csv_to_delta.py \
 --tables $bronzeTableArgs \
 --mode $BronzeMode \
---run-id $RunId
+--source-mode $BronzeSourceMode \
+--raw-landing-root $RawLandingRoot \
+--run-id $RunId$forceBronzeReprocessArg
 "@
     Invoke-InSparkContainer $csvToBronzeCmd
 } else {
@@ -104,6 +115,7 @@ if (-not $SkipBronzeToSilver) {
 /app/scripts/spark/bronze_to_silver.py \
 --tables $silverTableArgs \
 --mode $SilverMode \
+--load-type $SilverLoadType \
 --run-id $RunId \
 --register
 "@

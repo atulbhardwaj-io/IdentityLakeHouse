@@ -4,30 +4,35 @@ Pipeline Button (One-Command Runner)
 File:
 run_pipeline.ps1
 
-Quick Commands
---------------
-1) Bronze -> Silver (all tables only)
-.\run_pipeline.ps1
 
-2) CSV -> Bronze + Bronze -> Silver
-.\run_pipeline.ps1 -RunCsvToBronze
+Incremental Pipeline Commands
+=============================
 
-3) Bronze -> Silver + Aadhaar transform on _test (safe)
-.\run_pipeline.ps1 -RunAadhaarTransform
+1) CSV -> Bronze incremental only (all tables)
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables all
 
-4) CSV -> Bronze + Bronze -> Silver + Aadhaar transform on _test (safe)
-.\run_pipeline.ps1 -RunCsvToBronze -RunAadhaarTransform
+2) CSV -> Bronze incremental + Bronze -> Silver incremental (all tables)
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables all -SilverTables all
 
-5) CSV -> Bronze + Bronze -> Silver + Aadhaar transform + promote to main
-.\run_pipeline.ps1 -RunCsvToBronze -RunAadhaarTransform -Promote
+3) Bronze -> Silver incremental only (all tables)
+.\run_pipeline.ps1 -SilverTables all
 
-6) Only Aadhaar transform (skip Bronze->Silver)
-.\run_pipeline.ps1 -SkipBronzeToSilver -RunAadhaarTransform
+4) CSV -> Bronze incremental + Bronze -> Silver incremental (one table)
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables demographic -SilverTables demographic
 
-7) CSV -> Bronze only
-.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver
+5) Bronze -> Silver incremental only (one table)
+.\run_pipeline.ps1 -SilverTables demographic
 
-8) Silver -> Silver Test copy (all *_valid to *_valid_test)
+6) Reload one table's incoming CSV files into Bronze only
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables demographic -ForceBronzeReprocess
+
+7) Reload all incoming CSV files into Bronze only
+.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables all -ForceBronzeReprocess
+
+8) Full Silver rebuild from Bronze (all tables)
+.\run_pipeline.ps1 -SilverTables all -SilverLoadType full -SilverMode overwrite
+
+9) Silver -> Silver Test copy (all *_valid to *_valid_test)
 docker exec -it spark-master /opt/spark/bin/spark-submit `
 --master spark://spark-master:7077 `
 --packages io.delta:delta-spark_2.12:3.0.0 `
@@ -42,35 +47,114 @@ docker exec -it spark-master /opt/spark/bin/spark-submit `
 --mode overwrite
 
 
-Validation After Each Command
-=============================
+Table-Specific Commands
+=======================
 
-Open shell once:
-docker exec -it spark-master /opt/spark/bin/pyspark --master spark://spark-master:7077 --packages io.delta:delta-spark_2.12:3.0.0 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog
+aadhaar_voter_link_raw:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables aadhaar_voter_link_raw -SilverTables aadhaar_voter_link_raw
+.\run_pipeline.ps1 -SilverTables aadhaar_voter_link_raw
 
-Use these checks in pyspark prompt (>>>):
-from pyspark.sql import functions as F
+biometric:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables biometric -SilverTables biometric
+.\run_pipeline.ps1 -SilverTables biometric
 
-For command 1 (Bronze -> Silver):
-silver = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid"); silver.count(); silver.printSchema()
+demographic:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables demographic -SilverTables demographic
+.\run_pipeline.ps1 -SilverTables demographic
 
-For command 2 (CSV -> Bronze + Bronze -> Silver):
-bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/enrolment"); silver = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid"); bronze.count(), silver.count()
+district_scheme_payment_raw:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables district_scheme_payment_raw -SilverTables district_scheme_payment_raw
+.\run_pipeline.ps1 -SilverTables district_scheme_payment_raw
 
-For command 3 (Bronze -> Silver + Aadhaar test transform):
-main_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid"); test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test"); main_df.count(), test_df.count()
+enrolment:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables enrolment -SilverTables enrolment
+.\run_pipeline.ps1 -SilverTables enrolment
 
-For command 4 (CSV -> Bronze + Bronze -> Silver + Aadhaar test transform):
-bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/aadhaar_voter_link_raw"); test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test"); bronze.count(), test_df.count()
+population_raw:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables population_raw -SilverTables population_raw
+.\run_pipeline.ps1 -SilverTables population_raw
 
-For command 5 (Full flow with promote):
-main_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid"); main_df.count(); main_df.select("silver_run_id").distinct().orderBy(F.desc("silver_run_id")).show(5, False)
+scheme_beneficiary_raw:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables scheme_beneficiary_raw -SilverTables scheme_beneficiary_raw
+.\run_pipeline.ps1 -SilverTables scheme_beneficiary_raw
 
-For command 6 (Only Aadhaar transform):
-test_df = spark.read.format("delta").load("/app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test"); test_df.count(); test_df.groupBy("date","state","district","pincode").count().filter("count > 1").count()
+scheme_master_raw:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables scheme_master_raw -SilverTables scheme_master_raw
+.\run_pipeline.ps1 -SilverTables scheme_master_raw
 
-For command 7 (CSV -> Bronze only):
-bronze = spark.read.format("delta").load("/app/scripts/bronze_layer/enrolment"); bronze.count(); bronze.printSchema()
+voter_registry_raw:
+.\run_pipeline.ps1 -RunCsvToBronze -BronzeTables voter_registry_raw -SilverTables voter_registry_raw
+.\run_pipeline.ps1 -SilverTables voter_registry_raw
 
-For command 8 (Silver -> Silver Test copy):
-main_df = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid"); test_df = spark.read.format("delta").load("/app/scripts/silver_layer/enrolment_valid_test"); main_df.count(), test_df.count()
+
+Validation Shell
+================
+
+Open PySpark once:
+docker exec -it spark-master /opt/spark/bin/pyspark --master spark://spark-master:7077 --packages io.delta:delta-spark_2.12:3.0.0 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog --conf spark.sql.catalogImplementation=hive --conf spark.sql.warehouse.dir=/app/spark-warehouse --conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true'
+
+
+Bronze Indicators
+=================
+
+Bronze row indicators:
+- bronze_ingest_ts
+- bronze_source_file
+- bronze_batch_id
+
+Bronze file manifest:
+bronze_control.ingested_files
+
+Check loaded files:
+spark.sql("""
+SELECT table_name, source_file_name, bronze_batch_id, row_count, status, bronze_ingest_ts
+FROM bronze_control.ingested_files
+ORDER BY bronze_ingest_ts DESC
+""").show(truncate=False)
+
+Check Bronze rows by batch:
+spark.sql("""
+SELECT bronze_batch_id, COUNT(*) AS rows
+FROM bronze.demographic
+GROUP BY bronze_batch_id
+ORDER BY bronze_batch_id DESC
+""").show(truncate=False)
+
+
+Silver Indicators
+=================
+
+Silver row indicators:
+- silver_processed_ts
+- silver_run_id
+- bronze_batch_id
+
+Silver batch control table:
+silver_control.processed_bronze_batches
+
+Check Bronze batches processed into Silver:
+spark.sql("""
+SELECT table_name, bronze_batch_id, silver_run_id, input_rows, output_rows, status, processed_ts
+FROM silver_control.processed_bronze_batches
+ORDER BY processed_ts DESC
+""").show(truncate=False)
+
+Check Silver rows by run and batch:
+spark.sql("""
+SELECT silver_run_id, bronze_batch_id, COUNT(*) AS rows
+FROM silver.demographic_valid
+GROUP BY silver_run_id, bronze_batch_id
+ORDER BY silver_run_id DESC
+""").show(truncate=False)
+
+
+Expected Incremental Skip Signals
+=================================
+
+Run the same incremental command twice.
+
+Bronze should print:
+[SKIP] No new CSV files for <table>
+
+Silver should print:
+[SKIP] No new Bronze batches for <table>
