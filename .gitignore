@@ -35,6 +35,13 @@ data/gold/
 data/checkpoints/
 
 # ------------------------------
+# Incremental incoming CSV drops
+# Keep folder README files, ignore actual incoming data files.
+# ------------------------------
+data/upcoming_data/**/*.csv
+!data/upcoming_data/**/README.md
+
+# ------------------------------
 # Synthetic generated datasets
 # ------------------------------
 synthetic_data/synthetic/*.csv
@@ -83,6 +90,7 @@ scripts/bronze_layer/voter_registry_raw/
 scripts/bronze_layer/biometric/
 scripts/bronze_layer/demographic/
 scripts/bronze_layer/enrolment/
+scripts/bronze_layer/_control/
 
 # ------------------------------
 # Silver outputs under scripts/
@@ -90,6 +98,7 @@ scripts/bronze_layer/enrolment/
 scripts/silver_layer/*_valid/
 scripts/silver_layer/*_valid_test/
 scripts/silver_layer/sql_work/
+scripts/silver_layer/_control/
 
 # ------------------------------
 # Silver transform workspace temp artifacts

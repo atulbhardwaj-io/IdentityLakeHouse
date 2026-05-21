@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Set
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
 
 DEFAULT_TABLES = ["enrolment", "demographic", "biometric"]
 SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
 HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
+SILVER_CONTROL_PATH = "/app/scripts/silver_layer/_control/processed_bronze_batches"
 PARTITION_COLS_BY_TABLE = {
     "aadhaar_voter_link_raw": ["partition_year", "partition_month"],
     "biometric": ["partition_year", "partition_month"],
@@ -21,6 +24,18 @@ PARTITION_COLS_BY_TABLE = {
     "scheme_master_raw": ["active_flag"],
     "voter_registry_raw": ["partition_year", "partition_month"],
 }
+
+SILVER_CONTROL_SCHEMA = StructType(
+    [
+        StructField("table_name", StringType(), False),
+        StructField("bronze_batch_id", StringType(), False),
+        StructField("processed_ts", TimestampType(), False),
+        StructField("silver_run_id", StringType(), False),
+        StructField("input_rows", LongType(), False),
+        StructField("output_rows", LongType(), False),
+        StructField("status", StringType(), False),
+    ]
+)
 
 
 def build_spark(app_name: str, master: str) -> SparkSession:
@@ -65,8 +80,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mode",
         choices=["overwrite", "append"],
-        default="overwrite",
+        default="append",
         help="Write mode for Silver Delta output.",
+    )
+    parser.add_argument(
+        "--load-type",
+        choices=["incremental", "full"],
+        default="incremental",
+        help="incremental processes only new bronze_batch_id values; full copies the selected Bronze table.",
     )
     parser.add_argument(
         "--register",
@@ -100,6 +121,79 @@ def resolve_tables(requested: list[str], bronze_root: Path) -> list[str]:
 def resolve_partition_cols(table_name: str, columns: list[str]) -> list[str]:
     requested_partition_cols = PARTITION_COLS_BY_TABLE.get(table_name, [])
     return [col_name for col_name in requested_partition_cols if col_name in columns]
+
+
+def delta_path_exists(path: str) -> bool:
+    return (Path(path) / "_delta_log").exists()
+
+
+def register_control_table(spark: SparkSession) -> None:
+    spark.sql("CREATE DATABASE IF NOT EXISTS silver_control")
+    spark.sql(
+        "CREATE TABLE IF NOT EXISTS silver_control.processed_bronze_batches "
+        f"USING DELTA LOCATION '{SILVER_CONTROL_PATH}'"
+    )
+    print("[REGISTERED] silver_control.processed_bronze_batches")
+
+
+def ensure_control_table(spark: SparkSession) -> None:
+    if not delta_path_exists(SILVER_CONTROL_PATH):
+        empty_control_df = spark.createDataFrame([], SILVER_CONTROL_SCHEMA)
+        empty_control_df.write.format("delta").mode("overwrite").save(SILVER_CONTROL_PATH)
+
+    register_control_table(spark)
+
+
+def get_processed_batch_ids(spark: SparkSession, table_name: str) -> Set[str]:
+    ensure_control_table(spark)
+    rows = (
+        spark.read.format("delta")
+        .load(SILVER_CONTROL_PATH)
+        .filter((F.col("table_name") == table_name) & (F.col("status") == "SUCCESS"))
+        .select("bronze_batch_id")
+        .distinct()
+        .collect()
+    )
+    return {row["bronze_batch_id"] for row in rows}
+
+
+def filter_incremental_rows(spark: SparkSession, df, table_name: str):
+    if "bronze_batch_id" not in df.columns:
+        raise ValueError(
+            f"Incremental Silver load requires bronze_batch_id in Bronze table: {table_name}"
+        )
+
+    processed_batch_ids = get_processed_batch_ids(spark, table_name)
+    if not processed_batch_ids:
+        return df
+
+    return df.filter(~F.col("bronze_batch_id").isin(sorted(processed_batch_ids)))
+
+
+def append_control_rows(spark: SparkSession, df, table_name: str, run_id: str) -> None:
+    ensure_control_table(spark)
+    control_df = (
+        df.groupBy("bronze_batch_id")
+        .count()
+        .withColumn("table_name", F.lit(table_name))
+        .withColumn("processed_ts", F.current_timestamp())
+        .withColumn("silver_run_id", F.lit(run_id))
+        .withColumn("input_rows", F.col("count").cast("long"))
+        .withColumn("output_rows", F.col("count").cast("long"))
+        .withColumn("status", F.lit("SUCCESS"))
+        .select(
+            "table_name",
+            F.col("bronze_batch_id").cast("string").alias("bronze_batch_id"),
+            "processed_ts",
+            "silver_run_id",
+            "input_rows",
+            "output_rows",
+            "status",
+        )
+    )
+
+    control_df.write.format("delta").mode("append").save(SILVER_CONTROL_PATH)
+    print(f"[CONTROL] Recorded processed Bronze batches for {table_name}")
 
 
 def normalize_partition_cols(df, partition_cols: list[str]):
@@ -144,6 +238,9 @@ def main() -> None:
     bronze_root = Path(args.bronze_root)
     silver_root = Path(args.silver_root)
 
+    if args.load_type == "incremental" and args.mode != "append":
+        raise ValueError("Incremental Silver load requires --mode append.")
+
     tables = resolve_tables(args.tables, bronze_root)
     if not tables:
         raise ValueError(
@@ -154,6 +251,7 @@ def main() -> None:
     try:
         if args.register:
             spark.sql("CREATE DATABASE IF NOT EXISTS silver")
+            ensure_control_table(spark)
 
         for table in tables:
             bronze_path = bronze_root / table
@@ -164,10 +262,17 @@ def main() -> None:
             silver_table_name = f"{table}_valid"
             silver_path = silver_root / silver_table_name
 
-            df = (
-                spark.read.format("delta").load(str(bronze_path))
-                .withColumn("silver_processed_ts", F.current_timestamp())
-                .withColumn("silver_run_id", F.lit(args.run_id))
+            df = spark.read.format("delta").load(str(bronze_path))
+            if args.load_type == "incremental":
+                df = filter_incremental_rows(spark, df, table)
+
+            input_count = df.count()
+            if input_count == 0:
+                print(f"[SKIP] No new Bronze batches for {table}")
+                continue
+
+            df = df.withColumn("silver_processed_ts", F.current_timestamp()).withColumn(
+                "silver_run_id", F.lit(args.run_id)
             )
 
             partition_cols = resolve_partition_cols(table, df.columns)
@@ -175,16 +280,22 @@ def main() -> None:
             writer = (
                 df.write.format("delta")
                 .mode(args.mode)
-                .option("overwriteSchema", "true")
             )
+            if args.mode == "overwrite":
+                writer = writer.option("overwriteSchema", "true")
 
             if partition_cols:
                 writer = writer.partitionBy(*partition_cols)
 
             writer.save(str(silver_path))
+            if args.load_type == "incremental":
+                append_control_rows(spark, df, table, args.run_id)
 
             out_count = spark.read.format("delta").load(str(silver_path)).count()
-            print(f"[OK] {table} -> {silver_table_name} | rows={out_count} | path={silver_path}")
+            print(
+                f"[OK] {table} -> {silver_table_name} | input_rows={input_count} | "
+                f"silver_total_rows={out_count} | load_type={args.load_type} | path={silver_path}"
+            )
             if partition_cols:
                 print(f"[PARTITIONED BY] {silver_table_name}: {partition_cols}")
             else:
