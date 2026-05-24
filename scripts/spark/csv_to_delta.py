@@ -1,4 +1,6 @@
 import argparse
+import csv
+import json
 import os
 import sys
 from datetime import datetime
@@ -14,6 +16,8 @@ SYNTHETIC_FOLDER = "/app/synthetic_data/synthetic"
 RAW_LANDING_ROOT = "/app/data/upcoming_data"
 BRONZE_BASE_PATH = "/app/scripts/bronze_layer"
 BRONZE_MANIFEST_PATH = f"{BRONZE_BASE_PATH}/_control/ingested_files"
+BRONZE_FILE_VALIDATION_PATH = f"{BRONZE_BASE_PATH}/_control/incoming_file_validation_results"
+INCOMING_SCHEMA_CONTRACT_PATH = "/app/scripts/spark/schema_contracts/incoming_csv_schema_contracts.json"
 SKIP_FILES = {"district_masters.csv"}
 SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
 HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
@@ -57,6 +61,19 @@ MANIFEST_SCHEMA = StructType(
     ]
 )
 
+FILE_VALIDATION_SCHEMA = StructType(
+    [
+        StructField("validation_run_id", StringType(), False),
+        StructField("table_name", StringType(), False),
+        StructField("source_file_path", StringType(), False),
+        StructField("source_file_name", StringType(), False),
+        StructField("validation_ts", TimestampType(), False),
+        StructField("status", StringType(), False),
+        StructField("row_count", LongType(), False),
+        StructField("issues_json", StringType(), False),
+    ]
+)
+
 
 def build_spark() -> SparkSession:
     return (
@@ -85,6 +102,15 @@ def load_csv_files(spark: SparkSession, file_paths: List[str]):
         .option("inferSchema", True)
         .csv(file_paths)
     )
+
+
+def load_schema_contracts(contract_path: str) -> Dict[str, Dict[str, str]]:
+    with open(contract_path, "r", encoding="utf-8") as handle:
+        raw_contracts = json.load(handle)
+    return {
+        table_name: {column: dtype.lower() for column, dtype in schema.items()}
+        for table_name, schema in raw_contracts.items()
+    }
 
 
 def apply_bronze_metadata(df, run_id: str):
@@ -181,6 +207,15 @@ def register_manifest_table(spark: SparkSession) -> None:
         f"USING DELTA LOCATION '{BRONZE_MANIFEST_PATH}'"
     )
     print("[REGISTERED] bronze_control.ingested_files")
+
+
+def register_file_validation_table(spark: SparkSession) -> None:
+    spark.sql("CREATE DATABASE IF NOT EXISTS bronze_control")
+    spark.sql(
+        "CREATE TABLE IF NOT EXISTS bronze_control.incoming_file_validation_results "
+        f"USING DELTA LOCATION '{BRONZE_FILE_VALIDATION_PATH}'"
+    )
+    print("[REGISTERED] bronze_control.incoming_file_validation_results")
 
 
 def discover_legacy_table_sources() -> Dict[str, List[str]]:
@@ -345,6 +380,178 @@ def append_manifest(
     print(f"[MANIFEST] Recorded {len(file_paths)} file(s) for {table_name}")
 
 
+def validate_csv_file(
+    table_name: str,
+    file_path: str,
+    expected_columns: List[str],
+    delimiter: str = ",",
+) -> Dict[str, object]:
+    path = Path(file_path)
+    issues: List[Dict[str, object]] = []
+    data_row_count = 0
+
+    if not path.exists():
+        issues.append({"check": "file_readable", "status": "FAIL", "detail": "file does not exist"})
+        return build_file_validation_result(table_name, path, "FAIL", data_row_count, issues)
+
+    if path.stat().st_size == 0:
+        issues.append({"check": "empty_file", "status": "FAIL", "detail": "file size is 0 bytes"})
+        return build_file_validation_result(table_name, path, "FAIL", data_row_count, issues)
+
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            first_line = handle.readline()
+            if not first_line:
+                issues.append({"check": "empty_file", "status": "FAIL", "detail": "file has no header row"})
+                return build_file_validation_result(table_name, path, "FAIL", data_row_count, issues)
+
+            if delimiter not in first_line and len(expected_columns) > 1:
+                issues.append(
+                    {
+                        "check": "delimiter_validation",
+                        "status": "FAIL",
+                        "detail": f"expected delimiter '{delimiter}' not found in header",
+                    }
+                )
+
+            handle.seek(0)
+            reader = csv.reader(handle, delimiter=delimiter)
+            try:
+                header = next(reader)
+            except StopIteration:
+                issues.append({"check": "header_validation", "status": "FAIL", "detail": "missing header"})
+                return build_file_validation_result(table_name, path, "FAIL", data_row_count, issues)
+
+            header = [column.strip() for column in header]
+            if not header or all(not column for column in header):
+                issues.append({"check": "header_validation", "status": "FAIL", "detail": "blank header"})
+                return build_file_validation_result(table_name, path, "FAIL", data_row_count, issues)
+
+            missing_columns = [column for column in expected_columns if column not in header]
+            if missing_columns:
+                issues.append(
+                    {
+                        "check": "basic_column_existence",
+                        "status": "FAIL",
+                        "missing_columns": missing_columns,
+                    }
+                )
+
+            malformed_examples = []
+            expected_width = len(header)
+            for row in reader:
+                if not row or all(not value.strip() for value in row):
+                    continue
+                data_row_count += 1
+                if len(row) != expected_width and len(malformed_examples) < 5:
+                    malformed_examples.append(
+                        {
+                            "line_number": reader.line_num,
+                            "expected_columns": expected_width,
+                            "actual_columns": len(row),
+                        }
+                    )
+
+            if data_row_count == 0:
+                issues.append({"check": "empty_file", "status": "FAIL", "detail": "file has header but no data rows"})
+
+            if malformed_examples:
+                issues.append(
+                    {
+                        "check": "malformed_row_detection",
+                        "status": "FAIL",
+                        "examples": malformed_examples,
+                    }
+                )
+
+    except UnicodeDecodeError as exc:
+        issues.append({"check": "file_readable", "status": "FAIL", "detail": f"encoding error: {exc}"})
+    except OSError as exc:
+        issues.append({"check": "file_readable", "status": "FAIL", "detail": str(exc)})
+    except csv.Error as exc:
+        issues.append({"check": "malformed_row_detection", "status": "FAIL", "detail": str(exc)})
+
+    status = "FAIL" if issues else "PASS"
+    return build_file_validation_result(table_name, path, status, data_row_count, issues)
+
+
+def build_file_validation_result(
+    table_name: str,
+    path: Path,
+    status: str,
+    row_count: int,
+    issues: List[Dict[str, object]],
+) -> Dict[str, object]:
+    return {
+        "table_name": table_name,
+        "source_file_path": str(path),
+        "source_file_name": path.name,
+        "status": status,
+        "row_count": int(row_count),
+        "issues_json": json.dumps(issues, sort_keys=True),
+    }
+
+
+def validate_incoming_files(
+    table_name: str,
+    file_paths: List[str],
+    schema_contracts: Dict[str, Dict[str, str]],
+) -> Tuple[List[str], List[Dict[str, object]]]:
+    if table_name not in schema_contracts:
+        raise ValueError(f"No incoming CSV schema contract found for table: {table_name}")
+
+    expected_columns = list(schema_contracts[table_name].keys())
+    validation_results = [
+        validate_csv_file(table_name, file_path, expected_columns)
+        for file_path in file_paths
+    ]
+    valid_files = [
+        result["source_file_path"]
+        for result in validation_results
+        if result["status"] == "PASS"
+    ]
+    return valid_files, validation_results
+
+
+def append_file_validation_results(
+    spark: SparkSession,
+    run_id: str,
+    validation_results: List[Dict[str, object]],
+) -> None:
+    if not validation_results:
+        return
+
+    rows = []
+    for result in validation_results:
+        rows.append(
+            {
+                "validation_run_id": run_id,
+                "table_name": result["table_name"],
+                "source_file_path": result["source_file_path"],
+                "source_file_name": result["source_file_name"],
+                "validation_ts": datetime.utcnow(),
+                "status": result["status"],
+                "row_count": int(result["row_count"]),
+                "issues_json": result["issues_json"],
+            }
+        )
+
+    validation_df = spark.createDataFrame(rows, FILE_VALIDATION_SCHEMA)
+    validation_df.write.format("delta").mode("append").save(BRONZE_FILE_VALIDATION_PATH)
+    register_file_validation_table(spark)
+
+
+def print_file_validation_report(table_name: str, validation_results: List[Dict[str, object]]) -> None:
+    print("\n" + "=" * 90)
+    print(f"INCOMING FILE VALIDATION | table={table_name}")
+    print("=" * 90)
+    for result in validation_results:
+        print(
+            f"{result['status']} | file={result['source_file_name']} | "
+            f"rows={result['row_count']} | issues={result['issues_json']}"
+        )
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Build Bronze Delta tables from raw CSV files.")
     parser.add_argument(
@@ -369,6 +576,21 @@ def parse_args():
         "--raw-landing-root",
         default=RAW_LANDING_ROOT,
         help="Durable incoming CSV root. Expected layout: <root>/<table_name>/year=YYYY/month=MM/day=DD/*.csv",
+    )
+    parser.add_argument(
+        "--schema-contract-path",
+        default=INCOMING_SCHEMA_CONTRACT_PATH,
+        help="Incoming CSV schema contract used for basic file validation.",
+    )
+    parser.add_argument(
+        "--skip-file-validation",
+        action="store_true",
+        help="Skip lightweight incoming file validation before Bronze write.",
+    )
+    parser.add_argument(
+        "--skip-invalid-files",
+        action="store_true",
+        help="Reject invalid files but continue loading valid files. Default fails the table when any file is invalid.",
     )
     parser.add_argument(
         "--run-id",
@@ -403,6 +625,7 @@ def main() -> None:
     args = parse_args()
     table_sources = discover_table_sources(args.source_mode, args.raw_landing_root)
     selected_tables = resolve_tables(args.tables, list(table_sources.keys()))
+    schema_contracts = load_schema_contracts(args.schema_contract_path)
 
     spark = build_spark()
     print("Spark Session Created")
@@ -424,6 +647,30 @@ def main() -> None:
             if not new_files:
                 print(f"[SKIP] No new CSV files for {table_name}")
                 continue
+
+            if not args.skip_file_validation:
+                valid_files, validation_results = validate_incoming_files(
+                    table_name,
+                    new_files,
+                    schema_contracts,
+                )
+                append_file_validation_results(spark, args.run_id, validation_results)
+                print_file_validation_report(table_name, validation_results)
+
+                invalid_files = [
+                    result for result in validation_results if result["status"] != "PASS"
+                ]
+                if invalid_files and not args.skip_invalid_files:
+                    invalid_names = [result["source_file_name"] for result in invalid_files]
+                    raise ValueError(
+                        f"Incoming file validation failed for table={table_name}. "
+                        f"Rejected files={invalid_names}"
+                    )
+                new_files = valid_files
+
+                if not new_files:
+                    print(f"[SKIP] No valid CSV files for {table_name}")
+                    continue
 
             print(f"[FILES] {table_name}: {len(new_files)} new of {len(candidate_files)} discovered")
             df = load_csv_files(spark, new_files)

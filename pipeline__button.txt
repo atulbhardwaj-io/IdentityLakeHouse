@@ -14,7 +14,7 @@ Incremental Pipeline Commands
 2) CSV -> Bronze incremental + Bronze -> Silver incremental (all tables)
 .\run_pipeline.ps1 -RunCsvToBronze -BronzeTables all -SilverTables all
 
-3) Bronze -> Silver incremental only (all tables)
+3) Bronze schema validation + Bronze -> Silver incremental only (all tables)
 .\run_pipeline.ps1 -SilverTables all
 
 4) CSV -> Bronze incremental + Bronze -> Silver incremental (one table)
@@ -32,7 +32,52 @@ Incremental Pipeline Commands
 8) Full Silver rebuild from Bronze (all tables)
 .\run_pipeline.ps1 -SilverTables all -SilverLoadType full -SilverMode overwrite
 
-9) Silver -> Silver Test copy (all *_valid to *_valid_test)
+9) Run Silver quality validation only
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.sql.catalogImplementation=hive `
+--conf spark.sql.warehouse.dir=/app/spark-warehouse `
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true' `
+/app/scripts/spark/validate_silver_quality.py `
+--tables all `
+--run-id manual_silver_quality_validation `
+--validate-scope incremental
+
+9b) Run Silver quality validation full historical scan
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.sql.catalogImplementation=hive `
+--conf spark.sql.warehouse.dir=/app/spark-warehouse `
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true' `
+/app/scripts/spark/validate_silver_quality.py `
+--tables all `
+--run-id manual_full_silver_quality_validation `
+--validate-scope full
+
+10) Run Bronze Delta enterprise schema validation only
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.sql.catalogImplementation=hive `
+--conf spark.sql.warehouse.dir=/app/spark-warehouse `
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true' `
+/app/scripts/spark/validate_bronze_schema.py `
+--source-layer bronze `
+--tables all `
+--run-id manual_bronze_schema_validation
+
+11) Silver -> Silver Test copy (all *_valid to *_valid_test)
 docker exec -it spark-master /opt/spark/bin/spark-submit `
 --master spark://spark-master:7077 `
 --packages io.delta:delta-spark_2.12:3.0.0 `
@@ -112,6 +157,13 @@ FROM bronze_control.ingested_files
 ORDER BY bronze_ingest_ts DESC
 """).show(truncate=False)
 
+Check incoming CSV basic validation results:
+spark.sql("""
+SELECT validation_run_id, table_name, source_file_name, status, row_count, issues_json, validation_ts
+FROM bronze_control.incoming_file_validation_results
+ORDER BY validation_ts DESC
+""").show(truncate=False)
+
 Check Bronze rows by batch:
 spark.sql("""
 SELECT bronze_batch_id, COUNT(*) AS rows
@@ -137,6 +189,25 @@ spark.sql("""
 SELECT table_name, bronze_batch_id, silver_run_id, input_rows, output_rows, status, processed_ts
 FROM silver_control.processed_bronze_batches
 ORDER BY processed_ts DESC
+""").show(truncate=False)
+
+Check schema validation reports:
+spark.sql("""
+SELECT validation_run_id, table_name, status, missing_columns, new_columns,
+       datatype_mismatches, metadata_issues, row_count, validation_ts
+FROM silver_control.schema_validation_results
+ORDER BY validation_ts DESC
+""").show(truncate=False)
+
+Check schema quarantine tables:
+spark.sql("SHOW TABLES IN silver_quarantine").show(truncate=False)
+
+Check Silver quality validation reports:
+spark.sql("""
+SELECT validation_run_id, table_name, validation_scope, status, total_rows, valid_rows,
+       invalid_rows, rule_summary_json, validation_ts
+FROM silver_control.quality_validation_results
+ORDER BY validation_ts DESC
 """).show(truncate=False)
 
 Check Silver rows by run and batch:
