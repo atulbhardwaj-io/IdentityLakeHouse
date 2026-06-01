@@ -13,8 +13,9 @@ param(
     [ValidateSet("overwrite", "append")][string]$SilverMode = "append",
     [ValidateSet("incremental", "full")][string]$SilverLoadType = "incremental",
     [switch]$RunCsvToBronze,
-    [switch]$RunBronzeValidation,
     [switch]$SkipBronzeToSilver,
+    [switch]$SkipSilverQualityValidation,
+    [switch]$FailOnSilverQualityInvalid,
     [switch]$RunAadhaarTransform,
     [switch]$Promote
 )
@@ -41,6 +42,7 @@ Write-Host "RunId:     $RunId"
 Write-Host "Bronze:    $BronzeMode | Tables: $($BronzeTables -join ', ')"
 Write-Host "BronzeSrc: $BronzeSourceMode | RawLandingRoot: $RawLandingRoot"
 Write-Host "Silver:    $SilverMode | LoadType: $SilverLoadType | Tables: $($SilverTables -join ', ')"
+Write-Host "QualityVal:$(-not $SkipSilverQualityValidation)"
 
 # Ensure writable Ivy cache inside container (fixes permission issues under /home/spark/.ivy2).
 Invoke-InSparkContainer "mkdir -p /tmp/.ivy2/cache /tmp/.ivy2/jars"
@@ -74,28 +76,6 @@ if ($RunCsvToBronze) {
     Write-Host "`n[SKIP] CSV -> Bronze load skipped. Use -RunCsvToBronze to run it." -ForegroundColor DarkYellow
 }
 
-if ($RunBronzeValidation) {
-    Write-Host "`n[0.5/2] Bronze validation..." -ForegroundColor Yellow
-    $bronzeTableArgs = $BronzeTables -join " "
-    $validateBronzeCmd = @"
-/opt/spark/bin/spark-submit \
---master $MasterUrl \
---packages io.delta:delta-spark_2.12:3.0.0 \
---conf spark.jars.ivy=/tmp/.ivy2 \
---conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
---conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
---conf spark.sql.catalogImplementation=hive \
---conf spark.sql.warehouse.dir=$WarehouseDir \
---conf 'spark.hadoop.javax.jdo.option.ConnectionURL=$MetastoreUrl' \
-/app/scripts/spark/validate_bronze.py \
---master $MasterUrl \
---tables $bronzeTableArgs
-"@
-    Invoke-InSparkContainer $validateBronzeCmd
-} else {
-    Write-Host "`n[SKIP] Bronze validation skipped. Use -RunBronzeValidation to run it." -ForegroundColor DarkYellow
-}
-
 if (-not $SkipBronzeToSilver) {
     Write-Host "`n[1/2] Bronze -> Silver copy (all Delta tables)..." -ForegroundColor Yellow
     $silverTableArgs = $SilverTables -join " "
@@ -120,6 +100,32 @@ if (-not $SkipBronzeToSilver) {
 --register
 "@
     Invoke-InSparkContainer $bronzeToSilverCmd
+
+    if (-not $SkipSilverQualityValidation) {
+        Write-Host "`n[1.5/2] Silver quality validation and quarantine..." -ForegroundColor Yellow
+        $silverQualityFailArg = ""
+        if ($FailOnSilverQualityInvalid) {
+            $silverQualityFailArg = " --fail-on-invalid"
+        }
+        $silverQualityCmd = @"
+/opt/spark/bin/spark-submit \
+--master $MasterUrl \
+--packages io.delta:delta-spark_2.12:3.0.0 \
+--conf spark.jars.ivy=/tmp/.ivy2 \
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+--conf spark.sql.catalogImplementation=hive \
+--conf spark.sql.warehouse.dir=$WarehouseDir \
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=$MetastoreUrl' \
+/app/scripts/spark/validate_silver_quality.py \
+--tables $silverTableArgs \
+--run-id $RunId \
+--validate-scope incremental$silverQualityFailArg
+"@
+        Invoke-InSparkContainer $silverQualityCmd
+    } else {
+        Write-Host "`n[SKIP] Silver quality validation skipped." -ForegroundColor DarkYellow
+    }
 } else {
     Write-Host "`n[SKIP] Bronze -> Silver copy skipped." -ForegroundColor DarkYellow
 }

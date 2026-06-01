@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
@@ -56,7 +55,6 @@ MANIFEST_SCHEMA = StructType(
         StructField("status", StringType(), False),
     ]
 )
-
 
 def build_spark() -> SparkSession:
     return (

@@ -1,0 +1,94 @@
+{
+  "aadhaar_voter_link_raw": {
+    "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
+    "non_negative_columns": [
+      "voter_total",
+      "aadhaar_available",
+      "aadhaar_voter_linked",
+      "linkage_pending",
+      "linkage_rejected",
+      "kyc_pending",
+      "duplicate_suspected"
+    ],
+    "percentage_columns": ["linkage_pct"],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode"]
+  },
+  "biometric": {
+    "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
+    "non_negative_columns": ["bio_age_5_17", "bio_age_17_"],
+    "percentage_columns": [],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode"]
+  },
+  "demographic": {
+    "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
+    "non_negative_columns": ["demo_age_5_17", "demo_age_17_"],
+    "percentage_columns": [],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode"]
+  },
+  "district_scheme_payment_raw": {
+    "required_columns": ["date", "state", "district", "pincode", "scheme_id", "bronze_batch_id"],
+    "non_negative_columns": [
+      "beneficiaries_paid",
+      "failed_payments",
+      "pending_payments",
+      "avg_amount_per_beneficiary",
+      "amount_paid",
+      "amount_failed",
+      "amount_pending"
+    ],
+    "percentage_columns": ["utilization_pct"],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode", "scheme_id"]
+  },
+  "enrolment": {
+    "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
+    "non_negative_columns": ["age_0_5", "age_5_17", "age_18_greater"],
+    "percentage_columns": [],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode"]
+  },
+  "population_raw": {
+    "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
+    "non_negative_columns": ["population_total", "male", "female", "age_0_5", "age_6_17", "age_18_plus"],
+    "percentage_columns": [],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode"]
+  },
+  "scheme_beneficiary_raw": {
+    "required_columns": ["date", "state", "district", "pincode", "scheme_id", "bronze_batch_id"],
+    "non_negative_columns": [
+      "applications_received",
+      "beneficiaries_approved",
+      "beneficiaries_rejected",
+      "beneficiaries_disbursed",
+      "disbursed_amount"
+    ],
+    "percentage_columns": [],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode", "scheme_id"]
+  },
+  "scheme_master_raw": {
+    "required_columns": ["scheme_id", "scheme_name", "active_flag", "bronze_batch_id"],
+    "non_negative_columns": [],
+    "percentage_columns": [],
+    "pincode_column": null,
+    "duplicate_key_columns": ["scheme_id"]
+  },
+  "voter_registry_raw": {
+    "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
+    "non_negative_columns": [
+      "voter_total",
+      "male_voters",
+      "female_voters",
+      "other_voters",
+      "new_registrations",
+      "deletions"
+    ],
+    "percentage_columns": ["turnout_pct_est"],
+    "pincode_column": "pincode",
+    "duplicate_key_columns": ["date", "state", "district", "pincode"]
+  }
+}

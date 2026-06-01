@@ -99,6 +99,8 @@ scripts/silver_layer/*_valid/
 scripts/silver_layer/*_valid_test/
 scripts/silver_layer/sql_work/
 scripts/silver_layer/_control/
+scripts/silver_layer/_validation/
+scripts/silver_layer/quarantine/
 
 # ------------------------------
 # Silver transform workspace temp artifacts

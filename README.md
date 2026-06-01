@@ -257,47 +257,28 @@ Validation signal:
 ### Phase 9: Validation
 #### Concepts Used
 - Row-count verification
-- Schema validation
-- Metadata validation
+- Load audit verification
+- Metadata lineage checks
 - Delta read-back checks
 
 #### Why This Matters
-- Every load must be validated before promoting trust.
-- Confirms data presence, schema correctness, and metadata completeness.
-- Prevents silent failures entering Silver layer.
+- Bronze is raw storage, so it should preserve incoming records first.
+- Bronze validation in this repo focuses on operational observability, not rejecting data.
+- Trust rules are enforced later in the Silver layer.
 
 #### Outcome
-- Verified Bronze correctness.
-- Trusted ingestion layer.
-- Ready handoff to Silver processing.
+- Raw Bronze records are stored with lineage.
+- Loaded file history is auditable.
+- Silver receives data for validation and quarantine.
 
 #### Phase 9 Implemented In This Repo
-- Bronze validation is available as a runnable pipeline step
-- Source CSV row counts are compared against Bronze Delta row counts
-- Bronze schema is printed during validation
-- Required metadata columns are validated:
+- Bronze records every loaded file in `bronze_control.ingested_files`
+- Bronze adds lineage columns:
   - `bronze_ingest_ts`
   - `bronze_source_file`
   - `bronze_batch_id`
-- Delta read-back and `DESCRIBE DETAIL` are used to confirm table readability and metadata
-
-Example validation command:
-
-```powershell
-.\run_pipeline.ps1 -RunCsvToBronze -RunBronzeValidation -SkipBronzeToSilver
-```
-
-Validate only selected Bronze tables:
-
-```powershell
-.\run_pipeline.ps1 -RunBronzeValidation -SkipBronzeToSilver -BronzeTables demographic enrolment
-```
-
-Validation passes when:
-- source and Bronze row counts match
-- Bronze metadata columns exist
-- required Bronze metadata columns do not contain nulls
-- Delta table can be read back successfully
+- No CSV schema validation or Bronze schema validation blocks raw ingestion
+- Data quality validation is handled in Silver
 
 ### Bronze Final Deliverable
 - Distributed raw storage in Delta format
@@ -380,6 +361,14 @@ bronze_source_file
 bronze_batch_id
 ```
 
+### Bronze Raw Load Policy
+
+Bronze is now treated as the raw landing Delta layer.
+
+Incoming CSV files are written into Bronze without blocking schema or quality validation. This keeps Bronze replayable and audit-friendly: even imperfect incoming data is preserved with ingestion metadata.
+
+CSV validation and Bronze schema validation code have been removed from the active pipeline. Bronze stores incoming files as raw Delta data.
+
 ### Silver Incremental Control
 
 Silver is append-only by default.
@@ -431,6 +420,94 @@ Full Silver rebuild if needed:
 .\run_pipeline.ps1 -SilverTables all -SilverLoadType full -SilverMode overwrite
 ```
 
+### Silver Quality Validation and Quarantine
+
+After Bronze-to-Silver loading, the pipeline validates Silver business quality rules.
+By default it validates only the current incremental Silver run using `silver_run_id = --run-id`.
+Use `--validate-scope full` only when you intentionally want to scan the full Silver history.
+
+Quality rules live in:
+
+```text
+scripts/spark/quality_contracts/silver_quality_rules.json
+```
+
+Validation script:
+
+```text
+scripts/spark/validate_silver_quality.py
+```
+
+The validator checks common Silver rules:
+
+- mandatory columns are not null or blank
+- pincode is 6 digits where applicable
+- numeric measure columns are non-negative
+- percentage columns are between 0 and 100
+- duplicate business keys are detected
+
+Invalid rows are written to:
+
+```text
+silver_quarantine.<table_name>_quality_quarantine
+/app/scripts/silver_layer/quarantine/<table_name>_quality_quarantine
+```
+
+Quality reports are written to:
+
+```text
+silver_control.quality_validation_results
+/app/scripts/silver_layer/_validation/quality_validation_results
+```
+
+Run Silver quality validation only:
+
+```powershell
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.sql.catalogImplementation=hive `
+--conf spark.sql.warehouse.dir=/app/spark-warehouse `
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true' `
+/app/scripts/spark/validate_silver_quality.py `
+--tables all `
+--run-id manual_silver_quality_validation `
+--validate-scope incremental
+```
+
+Run a full historical Silver quality scan:
+
+```powershell
+docker exec -it spark-master /opt/spark/bin/spark-submit `
+--master spark://spark-master:7077 `
+--packages io.delta:delta-spark_2.12:3.0.0 `
+--conf spark.jars.ivy=/tmp/.ivy2 `
+--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
+--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
+--conf spark.sql.catalogImplementation=hive `
+--conf spark.sql.warehouse.dir=/app/spark-warehouse `
+--conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true' `
+/app/scripts/spark/validate_silver_quality.py `
+--tables all `
+--run-id manual_full_silver_quality_validation `
+--validate-scope full
+```
+
+Skip Silver quality validation only for debugging:
+
+```powershell
+.\run_pipeline.ps1 -SilverTables all -SkipSilverQualityValidation
+```
+
+Fail the pipeline if quality validation finds invalid rows:
+
+```powershell
+.\run_pipeline.ps1 -SilverTables all -FailOnSilverQualityInvalid
+```
+
 ### Incremental Verification Queries
 
 Check files loaded into Bronze:
@@ -451,6 +528,23 @@ SELECT table_name, bronze_batch_id, silver_run_id, input_rows, output_rows, stat
 FROM silver_control.processed_bronze_batches
 ORDER BY processed_ts DESC
 """).show(truncate=False)
+```
+
+Check Silver quality validation results:
+
+```python
+spark.sql("""
+SELECT validation_run_id, table_name, validation_scope, status, total_rows, valid_rows,
+       invalid_rows, rule_summary_json, validation_ts
+FROM silver_control.quality_validation_results
+ORDER BY validation_ts DESC
+""").show(truncate=False)
+```
+
+Check quality quarantine tables:
+
+```python
+spark.sql("SHOW TABLES IN silver_quarantine").show(truncate=False)
 ```
 
 The quick command reference is also available in:
