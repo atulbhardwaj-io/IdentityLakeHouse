@@ -257,47 +257,28 @@ Validation signal:
 ### Phase 9: Validation
 #### Concepts Used
 - Row-count verification
-- Schema validation
-- Metadata validation
+- Load audit verification
+- Metadata lineage checks
 - Delta read-back checks
 
 #### Why This Matters
-- Every load must be validated before promoting trust.
-- Confirms data presence, schema correctness, and metadata completeness.
-- Prevents silent failures entering Silver layer.
+- Bronze is raw storage, so it should preserve incoming records first.
+- Bronze validation in this repo focuses on operational observability, not rejecting data.
+- Trust rules are enforced later in the Silver layer.
 
 #### Outcome
-- Verified Bronze correctness.
-- Trusted ingestion layer.
-- Ready handoff to Silver processing.
+- Raw Bronze records are stored with lineage.
+- Loaded file history is auditable.
+- Silver receives data for validation and quarantine.
 
 #### Phase 9 Implemented In This Repo
-- Bronze validation is available as a runnable pipeline step
-- Source CSV row counts are compared against Bronze Delta row counts
-- Bronze schema is printed during validation
-- Required metadata columns are validated:
+- Bronze records every loaded file in `bronze_control.ingested_files`
+- Bronze adds lineage columns:
   - `bronze_ingest_ts`
   - `bronze_source_file`
   - `bronze_batch_id`
-- Delta read-back and `DESCRIBE DETAIL` are used to confirm table readability and metadata
-
-Example validation command:
-
-```powershell
-.\run_pipeline.ps1 -RunCsvToBronze -RunBronzeValidation -SkipBronzeToSilver
-```
-
-Validate only selected Bronze tables:
-
-```powershell
-.\run_pipeline.ps1 -RunBronzeValidation -SkipBronzeToSilver -BronzeTables demographic enrolment
-```
-
-Validation passes when:
-- source and Bronze row counts match
-- Bronze metadata columns exist
-- required Bronze metadata columns do not contain nulls
-- Delta table can be read back successfully
+- No CSV schema validation or Bronze schema validation blocks raw ingestion
+- Data quality validation is handled in Silver
 
 ### Bronze Final Deliverable
 - Distributed raw storage in Delta format
@@ -380,37 +361,13 @@ bronze_source_file
 bronze_batch_id
 ```
 
-### Basic Incoming File Validation Before Bronze
+### Bronze Raw Load Policy
 
-Before a CSV file is written to Bronze, `scripts/spark/csv_to_delta.py` now performs lightweight ingestion validation.
+Bronze is now treated as the raw landing Delta layer.
 
-It checks:
+Incoming CSV files are written into Bronze without blocking schema or quality validation. This keeps Bronze replayable and audit-friendly: even imperfect incoming data is preserved with ingestion metadata.
 
-- file is readable
-- file is not empty
-- header exists
-- comma delimiter is present
-- required columns exist
-- malformed rows do not have the wrong number of fields
-
-Validation results are written to:
-
-```text
-bronze_control.incoming_file_validation_results
-/app/scripts/bronze_layer/_control/incoming_file_validation_results
-```
-
-By default, if any incoming file is invalid, Bronze ingestion fails before the Delta write. For controlled development runs, invalid files can be rejected while valid files continue:
-
-```powershell
-.\run_pipeline.ps1 -RunCsvToBronze -SkipBronzeToSilver -BronzeTables all
-```
-
-Direct script option:
-
-```text
---skip-invalid-files
-```
+CSV validation and Bronze schema validation code have been removed from the active pipeline. Bronze stores incoming files as raw Delta data.
 
 ### Silver Incremental Control
 
@@ -429,84 +386,6 @@ Silver row indicators:
 silver_processed_ts
 silver_run_id
 bronze_batch_id
-```
-
-### Main Enterprise Schema Validation Gate
-
-The main enterprise schema validation gate runs on Bronze Delta tables before Silver processing.
-
-This is the trusted contract check because Silver reads Bronze Delta tables, not raw CSV files.
-
-Incoming CSV files still receive lightweight ingestion checks before Bronze:
-
-```text
-file readable, non-empty file, header, delimiter, required columns, malformed row width
-```
-
-The enterprise schema contract lives in:
-
-```text
-scripts/spark/schema_contracts/bronze_schema_contracts.json
-```
-
-Validation script:
-
-```text
-scripts/spark/validate_bronze_schema.py
-```
-
-Validation script:
-
-```text
-scripts/spark/validate_bronze_schema.py
-```
-
-The Bronze Delta validator checks:
-
-- missing columns
-- new columns
-- datatype mismatches
-- required Bronze metadata columns when `--source-layer bronze` is used
-- schema drift before Silver transformation
-
-Validation reports are written to:
-
-```text
-silver_control.schema_validation_results
-/app/scripts/silver_layer/_validation/schema_validation_results
-```
-
-If validation fails, invalid Bronze rows are written to schema quarantine tables:
-
-```text
-silver_quarantine.<table_name>_schema_quarantine
-/app/scripts/silver_layer/quarantine/<table_name>_schema_quarantine
-```
-
-The default `run_pipeline.ps1` flow runs Bronze Delta schema validation before Bronze-to-Silver. If validation fails, Silver processing stops.
-
-Run Bronze Delta schema validation only:
-
-```powershell
-docker exec -it spark-master /opt/spark/bin/spark-submit `
---master spark://spark-master:7077 `
---packages io.delta:delta-spark_2.12:3.0.0 `
---conf spark.jars.ivy=/tmp/.ivy2 `
---conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
---conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
---conf spark.sql.catalogImplementation=hive `
---conf spark.sql.warehouse.dir=/app/spark-warehouse `
---conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true' `
-/app/scripts/spark/validate_bronze_schema.py `
---source-layer bronze `
---tables all `
---run-id manual_bronze_schema_validation
-```
-
-Skip schema validation only for development/debugging:
-
-```powershell
-.\run_pipeline.ps1 -SilverTables all -SkipSchemaValidation
 ```
 
 ### Main Incremental Commands
@@ -641,16 +520,6 @@ ORDER BY bronze_ingest_ts DESC
 """).show(truncate=False)
 ```
 
-Check incoming CSV validation results:
-
-```python
-spark.sql("""
-SELECT validation_run_id, table_name, source_file_name, status, row_count, issues_json, validation_ts
-FROM bronze_control.incoming_file_validation_results
-ORDER BY validation_ts DESC
-""").show(truncate=False)
-```
-
 Check Bronze batches processed into Silver:
 
 ```python
@@ -659,23 +528,6 @@ SELECT table_name, bronze_batch_id, silver_run_id, input_rows, output_rows, stat
 FROM silver_control.processed_bronze_batches
 ORDER BY processed_ts DESC
 """).show(truncate=False)
-```
-
-Check schema validation results:
-
-```python
-spark.sql("""
-SELECT validation_run_id, table_name, status, missing_columns, new_columns,
-       datatype_mismatches, metadata_issues, row_count, validation_ts
-FROM silver_control.schema_validation_results
-ORDER BY validation_ts DESC
-""").show(truncate=False)
-```
-
-Check schema quarantine tables:
-
-```python
-spark.sql("SHOW TABLES IN silver_quarantine").show(truncate=False)
 ```
 
 Check Silver quality validation results:
