@@ -16,14 +16,14 @@
   },
   "biometric": {
     "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
-    "non_negative_columns": ["bio_age_5_17", "bio_age_17_"],
+    "non_negative_columns": ["bio_age_5_17", "bio_age_17_plus"],
     "percentage_columns": [],
     "pincode_column": "pincode",
     "duplicate_key_columns": ["date", "state", "district", "pincode"]
   },
   "demographic": {
     "required_columns": ["date", "state", "district", "pincode", "bronze_batch_id"],
-    "non_negative_columns": ["demo_age_5_17", "demo_age_17_"],
+    "non_negative_columns": ["demo_age_5_17", "demo_age_17_plus"],
     "percentage_columns": [],
     "pincode_column": "pincode",
     "duplicate_key_columns": ["date", "state", "district", "pincode"]
