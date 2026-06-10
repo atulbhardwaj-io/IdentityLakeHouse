@@ -1,0 +1,31 @@
+{
+  "dataset_name": "district_scheme_payment_raw",
+  "business_keys": ["date", "state", "district", "pincode", "scheme_id"],
+  "date_formats": ["dd-MM-yyyy", "yyyy-MM-dd"],
+  "timestamp_formats": ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd HH:mm:ss"],
+  "columns": [
+    {"name": "date", "type": "date", "nullable": false, "aliases": ["date", "dt", "record_date"]},
+    {"name": "state", "type": "string", "nullable": false, "aliases": ["state", "state_name"], "max_length": 120},
+    {"name": "district", "type": "string", "nullable": false, "aliases": ["district", "district_name"], "max_length": 120},
+    {"name": "pincode", "type": "string", "nullable": false, "aliases": ["pincode", "pin_code", "pin", "postal_code"], "pattern": "^[0-9]{6}$"},
+    {"name": "scheme_id", "type": "string", "nullable": false, "aliases": ["scheme_id"], "pattern": "^SCH[0-9]{4}$", "max_length": 20},
+    {"name": "beneficiaries_paid", "type": "long", "nullable": false, "aliases": ["beneficiaries_paid"], "min_value": 0},
+    {"name": "failed_payments", "type": "long", "nullable": false, "aliases": ["failed_payments"], "min_value": 0},
+    {"name": "pending_payments", "type": "long", "nullable": false, "aliases": ["pending_payments"], "min_value": 0},
+    {"name": "avg_amount_per_beneficiary", "type": "double", "nullable": false, "aliases": ["avg_amount_per_beneficiary"], "min_value": 0},
+    {"name": "amount_paid", "type": "double", "nullable": false, "aliases": ["amount_paid"], "min_value": 0},
+    {"name": "amount_failed", "type": "double", "nullable": false, "aliases": ["amount_failed"], "min_value": 0},
+    {"name": "amount_pending", "type": "double", "nullable": false, "aliases": ["amount_pending"], "min_value": 0},
+    {"name": "utilization_pct", "type": "double", "nullable": false, "aliases": ["utilization_pct"], "min_value": 0, "max_value": 100},
+    {"name": "source_system", "type": "string", "nullable": true, "aliases": ["source_system", "source", "data_source"], "max_length": 100},
+    {"name": "ingest_ts", "type": "timestamp", "nullable": true, "aliases": ["ingest_ts", "ingestion_ts", "ingested_at"]},
+    {"name": "batch_id", "type": "string", "nullable": true, "aliases": ["batch_id", "batch"], "max_length": 120},
+    {"name": "bronze_ingest_ts", "type": "timestamp", "nullable": false, "aliases": ["bronze_ingest_ts"]},
+    {"name": "bronze_source_file", "type": "string", "nullable": false, "aliases": ["bronze_source_file", "source_file"], "max_length": 500},
+    {"name": "bronze_batch_id", "type": "string", "nullable": false, "aliases": ["bronze_batch_id"], "max_length": 120},
+    {"name": "partition_year", "type": "int", "nullable": true, "aliases": ["partition_year"]},
+    {"name": "partition_month", "type": "int", "nullable": true, "aliases": ["partition_month"]},
+    {"name": "silver_processed_ts", "type": "timestamp", "nullable": false, "aliases": ["silver_processed_ts"]},
+    {"name": "silver_run_id", "type": "string", "nullable": false, "aliases": ["silver_run_id"], "max_length": 120}
+  ]
+}

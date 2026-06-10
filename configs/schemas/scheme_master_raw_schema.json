@@ -1,0 +1,24 @@
+{
+  "dataset_name": "scheme_master_raw",
+  "business_keys": ["scheme_id"],
+  "date_formats": ["dd-MM-yyyy", "yyyy-MM-dd"],
+  "timestamp_formats": ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd HH:mm:ss"],
+  "columns": [
+    {"name": "scheme_id", "type": "string", "nullable": false, "aliases": ["scheme_id"], "pattern": "^SCH[0-9]{4}$", "max_length": 20},
+    {"name": "scheme_name", "type": "string", "nullable": false, "aliases": ["scheme_name"], "max_length": 200},
+    {"name": "scheme_type", "type": "string", "nullable": false, "aliases": ["scheme_type"], "max_length": 100},
+    {"name": "target_group", "type": "string", "nullable": true, "aliases": ["target_group"], "max_length": 120},
+    {"name": "start_date", "type": "date", "nullable": false, "aliases": ["start_date", "scheme_start"]},
+    {"name": "end_date", "type": "date", "nullable": true, "aliases": ["end_date", "scheme_end"]},
+    {"name": "eligibility_rule", "type": "string", "nullable": true, "aliases": ["eligibility_rule"], "max_length": 500},
+    {"name": "active_flag", "type": "int", "nullable": false, "aliases": ["active_flag"], "min_value": 0, "max_value": 1},
+    {"name": "source_system", "type": "string", "nullable": true, "aliases": ["source_system", "source", "data_source"], "max_length": 100},
+    {"name": "ingest_ts", "type": "timestamp", "nullable": true, "aliases": ["ingest_ts", "ingestion_ts", "ingested_at"]},
+    {"name": "batch_id", "type": "string", "nullable": true, "aliases": ["batch_id", "batch"], "max_length": 120},
+    {"name": "bronze_ingest_ts", "type": "timestamp", "nullable": false, "aliases": ["bronze_ingest_ts"]},
+    {"name": "bronze_source_file", "type": "string", "nullable": false, "aliases": ["bronze_source_file", "source_file"], "max_length": 500},
+    {"name": "bronze_batch_id", "type": "string", "nullable": false, "aliases": ["bronze_batch_id"], "max_length": 120},
+    {"name": "silver_processed_ts", "type": "timestamp", "nullable": false, "aliases": ["silver_processed_ts"]},
+    {"name": "silver_run_id", "type": "string", "nullable": false, "aliases": ["silver_run_id"], "max_length": 120}
+  ]
+}

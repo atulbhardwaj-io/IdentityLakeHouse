@@ -13,6 +13,8 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
+from silver_framework import DEFAULT_SCHEMA_CONFIG_ROOT, load_schema_config
+
 
 SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
 HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
@@ -59,6 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--master", default="spark://spark-master:7077")
     parser.add_argument("--silver-root", default=DEFAULT_SILVER_ROOT)
     parser.add_argument("--rules-path", default=DEFAULT_QUALITY_RULES_PATH)
+    parser.add_argument("--schema-config-root", default=DEFAULT_SCHEMA_CONFIG_ROOT)
     parser.add_argument("--report-path", default=DEFAULT_REPORT_PATH)
     parser.add_argument("--quarantine-root", default=DEFAULT_QUARANTINE_ROOT)
     parser.add_argument("--tables", nargs="+", default=["all"])
@@ -76,6 +79,36 @@ def parse_args() -> argparse.Namespace:
 def load_quality_rules(path: str) -> Dict[str, Dict[str, object]]:
     with open(path, "r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def rules_from_schema_config(table_name: str, schema_config_root: str) -> Dict[str, object] | None:
+    schema_config = load_schema_config(table_name, schema_config_root)
+    if not schema_config:
+        return None
+
+    required_columns = []
+    non_negative_columns = []
+    percentage_columns = []
+    pincode_column = None
+
+    for column in schema_config.get("columns", []):
+        column_name = column["name"]
+        if not column.get("nullable", True):
+            required_columns.append(column_name)
+        if column.get("min_value") == 0:
+            non_negative_columns.append(column_name)
+        if column.get("min_value") == 0 and column.get("max_value") == 100:
+            percentage_columns.append(column_name)
+        if column_name == "pincode":
+            pincode_column = "pincode"
+
+    return {
+        "required_columns": required_columns,
+        "non_negative_columns": non_negative_columns,
+        "percentage_columns": percentage_columns,
+        "pincode_column": pincode_column,
+        "duplicate_key_columns": schema_config.get("business_keys", []),
+    }
 
 
 def list_valid_tables(silver_root: Path) -> List[str]:
@@ -307,14 +340,17 @@ def main() -> None:
     try:
         failed_tables = []
         for table_name in tables:
-            if table_name not in rules_by_table:
+            table_rules = rules_by_table.get(table_name) or rules_from_schema_config(
+                table_name, args.schema_config_root
+            )
+            if not table_rules:
                 print(f"[SKIP] No quality rules for {table_name}")
                 continue
             table_passed = validate_table(
                 spark=spark,
                 table_name=table_name,
                 silver_root=silver_root,
-                rules=rules_by_table[table_name],
+                rules=table_rules,
                 run_id=args.run_id,
                 validate_scope=args.validate_scope,
                 report_path=args.report_path,
@@ -326,7 +362,9 @@ def main() -> None:
         print("\n" + "=" * 96)
         print("SILVER QUALITY VALIDATION SUMMARY")
         print("=" * 96)
-        print(f"validated_tables={len([table for table in tables if table in rules_by_table])}")
+        print(
+            f"validated_tables={len([table for table in tables if rules_by_table.get(table) or rules_from_schema_config(table, args.schema_config_root)])}"
+        )
         print(f"failed_tables={failed_tables if failed_tables else 'none'}")
 
         if failed_tables and args.fail_on_invalid:
