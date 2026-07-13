@@ -84,9 +84,9 @@ def _coalesce_date(column_expr, formats: list[str]):
 
 
 def _coalesce_timestamp(column_expr, formats: list[str]):
-    parsed = [F.to_timestamp(column_expr.cast("string"), fmt) for fmt in formats]
-    parsed.append(column_expr.cast("timestamp"))
-    return F.coalesce(*parsed)
+    # Spark-generated timestamp values include fractional seconds. The default
+    # cast handles those and common ISO values without raising parser errors.
+    return column_expr.cast("timestamp")
 
 
 def quote_identifier(name: str) -> str:
@@ -99,23 +99,16 @@ def sql_string_literal(value: str) -> str:
 
 def cast_raw_column(raw_name: str, data_type: str, schema_config: dict[str, Any]):
     normalized_type = data_type.lower()
-    quoted_raw = quote_identifier(raw_name)
     if normalized_type == "date":
-        expressions = [
-            f"to_date(try_to_timestamp({quoted_raw}, {sql_string_literal(fmt)}))"
-            for fmt in schema_config.get("date_formats", ["dd-MM-yyyy", "yyyy-MM-dd"])
-        ]
-        expressions.append(f"try_cast({quoted_raw} as date)")
-        return F.expr(f"coalesce({', '.join(expressions)})")
+        return _coalesce_date(F.col(raw_name), schema_config.get("date_formats", ["dd-MM-yyyy", "yyyy-MM-dd"]))
     if normalized_type == "timestamp":
-        expressions = [
-            f"try_to_timestamp({quoted_raw}, {sql_string_literal(fmt)})"
-            for fmt in schema_config.get("timestamp_formats", ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd HH:mm:ss"])
-        ]
-        expressions.append(f"try_cast({quoted_raw} as timestamp)")
-        return F.expr(f"coalesce({', '.join(expressions)})")
+        return _coalesce_timestamp(
+            F.col(raw_name),
+            schema_config.get("timestamp_formats", ["yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd HH:mm:ss"]),
+        )
     if normalized_type == "string":
         return F.trim(F.col(raw_name).cast("string"))
+    quoted_raw = quote_identifier(raw_name)
     return F.expr(f"try_cast({quoted_raw} as {normalized_type})")
 
 
@@ -302,15 +295,16 @@ def write_quarantine(
     table_name: str,
     quarantine_root: str,
     run_id: str,
+    mode: str = "append",
 ) -> None:
     quarantine_path = f"{quarantine_root}/{table_name}_quality_quarantine"
     output_df = add_quarantine_metadata(invalid_df, run_id)
-    (
-        output_df.write.format("delta")
-        .mode("append")
-        .option("mergeSchema", "true")
-        .save(quarantine_path)
-    )
+    writer = output_df.write.format("delta").mode(mode)
+    if mode == "overwrite":
+        writer = writer.option("overwriteSchema", "true")
+    else:
+        writer = writer.option("mergeSchema", "true")
+    writer.save(quarantine_path)
     spark.sql("CREATE DATABASE IF NOT EXISTS silver_quarantine")
     spark.sql(
         f"CREATE TABLE IF NOT EXISTS silver_quarantine.{table_name}_quality_quarantine "

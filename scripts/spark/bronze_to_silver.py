@@ -341,6 +341,7 @@ def main() -> None:
                     table_name=table,
                     quarantine_root=args.quarantine_root,
                     run_id=args.run_id,
+                    mode=args.mode,
                 )
                 print(f"[QUARANTINE] {table}: invalid_rows={invalid_count}")
 
@@ -373,8 +374,7 @@ def main() -> None:
                 writer = writer.partitionBy(*partition_cols)
 
             writer.save(str(silver_path))
-            if args.load_type == "incremental":
-                append_control_rows(spark, df, valid_df, table, args.run_id)
+            append_control_rows(spark, df, valid_df, table, args.run_id)
 
             out_count = spark.read.format("delta").load(str(silver_path)).count()
             print(

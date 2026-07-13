@@ -2,7 +2,7 @@ Pipeline Button (One-Command Runner)
 ====================================
 
 File:
-run_pipeline.ps1
+.\run_pipeline.ps1
 
 
 Incremental Pipeline Commands
@@ -31,6 +31,9 @@ Incremental Pipeline Commands
 
 8) Full Silver rebuild from Bronze (all tables)
 .\run_pipeline.ps1 -SilverTables all -SilverLoadType full -SilverMode overwrite
+
+8b) Full Silver rebuild from Bronze (one table)
+.\run_pipeline.ps1 -SilverTables demographic -SilverLoadType full -SilverMode overwrite
 
 9) Run Silver quality validation only
 docker exec -it spark-master /opt/spark/bin/spark-submit `
@@ -123,6 +126,21 @@ Validation Shell
 Open PySpark once:
 docker exec -it spark-master /opt/spark/bin/pyspark --master spark://spark-master:7077 --packages io.delta:delta-spark_2.12:3.0.0 --conf spark.jars.ivy=/tmp/.ivy2 --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog --conf spark.sql.catalogImplementation=hive --conf spark.sql.warehouse.dir=/app/spark-warehouse --conf 'spark.hadoop.javax.jdo.option.ConnectionURL=jdbc:derby:;databaseName=/app/metastore_db;create=true'
 
+Open Spark SQL once:
+.\run_spark_sql.ps1
+
+If PowerShell blocks scripts:
+powershell -ExecutionPolicy Bypass -File .\run_spark_sql.ps1
+
+Note:
+The helper opens Delta path views such as silver_demographic_valid. This avoids
+Derby metastore lock errors. Use .\run_spark_sql.ps1 -UseHiveMetastore only when
+no other Spark job or shell is running.
+
+Spark SQL basics:
+SHOW TABLES;
+exit;
+
 
 Bronze Indicators
 =================
@@ -184,6 +202,38 @@ FROM silver.demographic_valid
 GROUP BY silver_run_id, bronze_batch_id
 ORDER BY silver_run_id DESC
 """).show(truncate=False)
+
+
+Spark SQL Validation Examples
+=============================
+
+Check demographic month=07 reached Bronze and Silver:
+SELECT 'bronze' AS layer, COUNT(*) AS rows
+FROM bronze_demographic
+WHERE partition_year = 2026
+  AND partition_month = 7
+UNION ALL
+SELECT 'silver_valid' AS layer, COUNT(*) AS rows
+FROM silver_demographic_valid
+WHERE partition_year = 2026
+  AND partition_month = 7;
+
+Expected for current demographic July test file:
+bronze        3
+silver_valid  3
+
+See demographic month=07 Silver rows:
+SELECT date, state, district, pincode, demo_age_5_17, demo_age_17_plus,
+       bronze_batch_id, silver_run_id
+FROM silver_demographic_valid
+WHERE partition_year = 2026
+  AND partition_month = 7;
+
+Check whether any month=07 rows went to Silver quarantine:
+SELECT COUNT(*) AS quarantined_rows
+FROM quarantine_demographic_quality
+WHERE partition_year = 2026
+  AND partition_month = 7;
 
 
 Expected Incremental Skip Signals

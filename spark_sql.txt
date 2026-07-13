@@ -1,0 +1,36 @@
+Recommended from Windows PowerShell:
+
+.\run_spark_sql.ps1
+
+If PowerShell blocks scripts:
+
+powershell -ExecutionPolicy Bypass -File .\run_spark_sql.ps1
+
+Why this helper exists:
+It opens Delta tables by path and creates temporary views. This avoids the Derby
+metastore error:
+
+ERROR XSDB6: Another instance of Derby may have already booted the database
+
+Use Hive metastore table names only when no other Spark job, PySpark shell, or
+Spark SQL shell is running:
+
+.\run_spark_sql.ps1 -UseHiveMetastore
+
+Inside Spark SQL, useful checks:
+
+SHOW TABLES;
+
+SELECT *
+FROM silver_demographic_valid
+WHERE partition_year = 2026
+  AND partition_month = 7;
+
+SELECT *
+FROM bronze_demographic
+WHERE partition_year = 2026
+  AND partition_month = 7;
+
+To exit:
+
+exit;
