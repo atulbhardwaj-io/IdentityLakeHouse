@@ -2725,7 +2725,7 @@ This is your first real DE layer.
 ### Backend
 
 ## FastAPI or Flask
-
+<!-- 
 <!-- ### Database
 
 ## PostgreSQL
@@ -2892,4 +2892,4 @@ In one line:
 
 **Python → pandas → SQL → Spark → Delta Lake → FastAPI → PostgreSQL → Kafka → Power BI → Azure → Databricks → GitHub**
 
-That is the complete tech stack your project uses end-to-end. --> --> -->
+That is the complete tech stack your project uses end-to-end. --> --> --> -->
