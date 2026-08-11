@@ -173,34 +173,8 @@ test_df.write.format("delta").mode("overwrite").option("overwriteSchema","true")
 
 ---------------------------------------------------------------------------------
 
-Scripted Silver Transform (aadhaar_voter_link) - store logic in code
+Scripted Silver Transform
 
-Run transform on _test table only:
-
-docker exec -it spark-master /opt/spark/bin/spark-submit `
---master spark://spark-master:7077 `
---packages io.delta:delta-spark_2.12:3.0.0 `
---conf spark.jars.ivy=/tmp/.ivy2 `
---conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
---conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
-/app/scripts/silver_layer/transform_aadhaar_voter_link_silver.py `
---input-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
---output-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
---run-id run_001
-
----------------------------------------------------------------------------------
-
-Promote test changes to main (after validation)
-
-docker exec -it spark-master /opt/spark/bin/spark-submit `
---master spark://spark-master:7077 `
---packages io.delta:delta-spark_2.12:3.0.0 `
---conf spark.jars.ivy=/tmp/.ivy2 `
---conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension `
---conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog `
-/app/scripts/silver_layer/transform_aadhaar_voter_link_silver.py `
---input-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
---output-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid_test `
---main-path /app/scripts/silver_layer/aadhaar_voter_link_raw_valid `
---run-id run_001 `
---promote
+No reusable aadhaar_voter_link Silver transform script exists in the current
+project. Keep scripted Silver logic in a real checked-in file before adding it
+to run_pipeline.ps1 or this command reference.

@@ -58,6 +58,41 @@ def helper_columns(df: DataFrame) -> list[str]:
     return [column for column in df.columns if column.startswith(RAW_PREFIX)]
 
 
+def schema_type_mismatches(existing_df: DataFrame, incoming_df: DataFrame) -> list[str]:
+    existing_types = {field.name: field.dataType.simpleString() for field in existing_df.schema.fields}
+    incoming_types = {field.name: field.dataType.simpleString() for field in incoming_df.schema.fields}
+    mismatches = []
+
+    for column_name in sorted(set(existing_types).intersection(incoming_types)):
+        if existing_types[column_name] != incoming_types[column_name]:
+            mismatches.append(
+                f"{column_name}: existing={existing_types[column_name]}, incoming={incoming_types[column_name]}"
+            )
+
+    return mismatches
+
+
+def ensure_delta_schema_compatible(
+    spark: SparkSession,
+    delta_path: str,
+    incoming_df: DataFrame,
+    table_label: str,
+    mode: str = "append",
+) -> None:
+    if mode == "overwrite" or not (Path(delta_path) / "_delta_log").exists():
+        return
+
+    existing_df = spark.read.format("delta").load(delta_path)
+    mismatches = schema_type_mismatches(existing_df, incoming_df)
+    if mismatches:
+        mismatch_text = "; ".join(mismatches)
+        raise ValueError(
+            f"Existing Delta schema is incompatible for {table_label}: {mismatch_text}. "
+            "Run a one-time full Silver schema migration with --load-type full --mode overwrite "
+            "for this table, then continue incremental appends."
+        )
+
+
 def normalize_name(name: str) -> str:
     normalized = name.strip().lower()
     normalized = normalized.replace("+", "_plus")
@@ -299,6 +334,13 @@ def write_quarantine(
 ) -> None:
     quarantine_path = f"{quarantine_root}/{table_name}_quality_quarantine"
     output_df = add_quarantine_metadata(invalid_df, run_id)
+    ensure_delta_schema_compatible(
+        spark=spark,
+        delta_path=quarantine_path,
+        incoming_df=output_df,
+        table_label=f"silver_quarantine.{table_name}_quality_quarantine",
+        mode=mode,
+    )
     writer = output_df.write.format("delta").mode(mode)
     if mode == "overwrite":
         writer = writer.option("overwriteSchema", "true")
