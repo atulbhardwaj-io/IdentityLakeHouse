@@ -14,6 +14,7 @@ from silver_framework import (
     DEFAULT_SCHEMA_CONFIG_ROOT,
     RECONCILIATION_LOG_PATH,
     append_reconciliation_log,
+    ensure_delta_schema_compatible,
     load_schema_config,
     normalize_schema,
     validate_types,
@@ -333,6 +334,14 @@ def main() -> None:
             invalid_df = invalid_df.cache()
             valid_count = valid_df.count()
             invalid_count = invalid_df.count()
+
+            ensure_delta_schema_compatible(
+                spark=spark,
+                delta_path=str(silver_path),
+                incoming_df=valid_df,
+                table_label=f"silver.{silver_table_name}",
+                mode=args.mode,
+            )
 
             if invalid_count > 0:
                 write_quarantine(

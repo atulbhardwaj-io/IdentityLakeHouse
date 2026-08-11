@@ -15,6 +15,7 @@ from silver_framework import (  # noqa: E402
     calculate_reconciliation_status,
     load_schema_config,
     normalize_name,
+    schema_type_mismatches,
 )
 
 
@@ -143,6 +144,19 @@ class SilverSparkFrameworkTests(unittest.TestCase):
         self.assertIn("pincode_invalid_pattern", reasons)
         self.assertIn("bio_age_5_17_below_min_0", reasons)
         self.assertIn("bio_age_17_plus_invalid_numeric", reasons)
+
+    def test_schema_type_mismatches_reports_incompatible_columns(self) -> None:
+        existing_df = self.spark.createDataFrame(
+            [{"pincode": 123456, "state": "X"}]
+        )
+        incoming_df = self.spark.createDataFrame(
+            [{"pincode": "123456", "state": "X", "new_col": "allowed"}]
+        )
+
+        self.assertEqual(
+            schema_type_mismatches(existing_df, incoming_df),
+            ["pincode: existing=bigint, incoming=string"],
+        )
 
 
 if __name__ == "__main__":

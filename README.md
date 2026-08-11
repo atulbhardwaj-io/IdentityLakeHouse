@@ -2725,7 +2725,7 @@ This is your first real DE layer.
 ### Backend
 
 ## FastAPI or Flask
-<!-- 
+
 <!-- ### Database
 
 ## PostgreSQL
@@ -2798,7 +2798,7 @@ This is your first real DE layer.
 ### Concepts
 
 * RBAC
-* column masking
+<!-- * column masking
 * lineage
 
 ---

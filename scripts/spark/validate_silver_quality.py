@@ -13,7 +13,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
 
-from silver_framework import DEFAULT_SCHEMA_CONFIG_ROOT, load_schema_config
+from silver_framework import DEFAULT_SCHEMA_CONFIG_ROOT, ensure_delta_schema_compatible, load_schema_config
 
 
 SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
@@ -225,11 +225,19 @@ def write_quarantine(
     run_id: str,
 ) -> None:
     quarantine_path = f"{quarantine_root}/{table_name}_quality_quarantine"
-    (
+    output_df = (
         invalid_df.withColumn("quality_validation_run_id", F.lit(run_id))
         .withColumn("quality_validation_ts", F.current_timestamp())
         .withColumn("quality_reasons_json", F.to_json(F.col("quality_reasons")))
-        .write.format("delta")
+    )
+    ensure_delta_schema_compatible(
+        spark=spark,
+        delta_path=quarantine_path,
+        incoming_df=output_df,
+        table_label=f"silver_quarantine.{table_name}_quality_quarantine",
+    )
+    (
+        output_df.write.format("delta")
         .mode("append")
         .option("mergeSchema", "true")
         .save(quarantine_path)
