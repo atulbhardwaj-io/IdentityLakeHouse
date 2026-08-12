@@ -275,3 +275,4 @@ Write-Host "                  PIPELINE COMPLETED" `
 
 Write-Host "============================================================" `
     -ForegroundColor Cyan
+9

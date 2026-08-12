@@ -229,14 +229,79 @@ def add_reason(df: DataFrame, condition, reason: str) -> DataFrame:
     )
 
 
-def add_duplicate_key_reason(df: DataFrame, key_columns: list[str]) -> DataFrame:
-    if not key_columns or any(column not in df.columns for column in key_columns):
+def add_duplicate_key_reason(
+    df: DataFrame,
+    key_columns: list[str],
+) -> DataFrame:
+
+    if (
+        not key_columns
+        or any(column not in df.columns for column in key_columns)
+    ):
         return df
-    duplicate_count = F.count(F.lit(1)).over(Window.partitionBy(*[F.col(column) for column in key_columns]))
+
+    order_columns = []
+
+    # 1. Latest source ingestion wins
+    if "ingest_ts" in df.columns:
+        order_columns.append(F.col("ingest_ts").desc())
+
+    # 2. Tie-breaker: latest Bronze ingestion
+    if "bronze_ingest_ts" in df.columns:
+        order_columns.append(F.col("bronze_ingest_ts").desc())
+
+    # 3. Tie-breaker: Bronze batch
+    if "bronze_batch_id" in df.columns:
+        order_columns.append(F.col("bronze_batch_id").desc())
+
+    # 4. Tie-breaker: source file
+    if "bronze_source_file" in df.columns:
+        order_columns.append(F.col("bronze_source_file").desc())
+
+    # If no ordering metadata exists, keep the old duplicate behavior
+    if not order_columns:
+        duplicate_count = F.count(F.lit(1)).over(
+            Window.partitionBy(
+                *[F.col(column) for column in key_columns]
+            )
+        )
+
+        return (
+            df.withColumn(
+                "__silver_duplicate_key_count",
+                duplicate_count,
+            )
+            .transform(
+                lambda current_df: add_reason(
+                    current_df,
+                    F.col("__silver_duplicate_key_count") > 1,
+                    "duplicate_business_key",
+                )
+            )
+            .drop("__silver_duplicate_key_count")
+        )
+
+    duplicate_window = (
+        Window
+        .partitionBy(
+            *[F.col(column) for column in key_columns]
+        )
+        .orderBy(*order_columns)
+    )
+
     return (
-        df.withColumn("__silver_duplicate_key_count", duplicate_count)
-        .transform(lambda current_df: add_reason(current_df, F.col("__silver_duplicate_key_count") > 1, "duplicate_business_key"))
-        .drop("__silver_duplicate_key_count")
+        df.withColumn(
+            "__duplicate_rank",
+            F.row_number().over(duplicate_window),
+        )
+        .transform(
+            lambda current_df: add_reason(
+                current_df,
+                F.col("__duplicate_rank") > 1,
+                "duplicate_business_key",
+            )
+        )
+        .drop("__duplicate_rank")
     )
 
 
