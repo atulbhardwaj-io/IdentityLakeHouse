@@ -17,6 +17,7 @@ from silver_framework import (
     ensure_delta_schema_compatible,
     load_schema_config,
     normalize_schema,
+    load_domain_rules,
     validate_types,
     write_quarantine,
 )
@@ -323,7 +324,17 @@ def main() -> None:
             if schema_config:
                 df, schema_report = normalize_schema(df, schema_config, args.run_id)
                 print(f"[SCHEMA] {table}: {json.dumps(schema_report, sort_keys=True)}")
-                valid_df, invalid_df = validate_types(df, schema_config)
+                domain_rules_config = load_domain_rules()
+
+                table_domain_rules = domain_rules_config.get(
+                    schema_config.get("dataset_name"),
+                    {},
+                )
+                valid_df, invalid_df = validate_types(
+                    df,
+                    schema_config,
+                    table_domain_rules,
+                )
             else:
                 print(f"[WARN] No schema config found for {table}; using legacy Silver copy behavior.")
                 partition_cols = resolve_partition_cols(table, df.columns)

@@ -21,6 +21,7 @@ from pyspark.sql.window import Window
 DEFAULT_SCHEMA_CONFIG_ROOT = "/app/configs/schemas"
 DEFAULT_QUARANTINE_ROOT = "/app/scripts/silver_layer/quarantine"
 RECONCILIATION_LOG_PATH = "/app/scripts/silver_layer/_control/reconciliation_log"
+DEFAULT_DOMAIN_RULES_PATH = "/app/configs/quality/domain_rules.json"
 RAW_PREFIX = "__silver_raw__"
 REASONS_COL = "validation_reasons"
 
@@ -43,6 +44,17 @@ def load_schema_config(table_name: str, config_root: str = DEFAULT_SCHEMA_CONFIG
     if not config_path.exists():
         return None
     with config_path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+def load_domain_rules(
+    rules_path: str = DEFAULT_DOMAIN_RULES_PATH,
+) -> dict[str, Any]:
+    path = Path(rules_path)
+
+    if not path.exists():
+        return {}
+
+    with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
@@ -228,6 +240,206 @@ def add_reason(df: DataFrame, condition, reason: str) -> DataFrame:
         F.when(condition, F.array_union(F.col(REASONS_COL), F.array(F.lit(reason)))).otherwise(F.col(REASONS_COL)),
     )
 
+def add_domain_rules(
+    df: DataFrame,
+    domain_rules: dict[str, Any],
+) -> DataFrame:
+
+    result_df = df
+
+    # ---------------------------------------------------------
+    # Date relationships
+    # Example:
+    # end_date >= start_date
+    # ---------------------------------------------------------
+
+    for rule in domain_rules.get("date_relationships", []):
+
+        left_column = rule["left"]
+        operator = rule["operator"]
+        right_column = rule["right"]
+        reason = rule["reason"]
+
+        if (
+            left_column not in result_df.columns
+            or right_column not in result_df.columns
+        ):
+            continue
+
+        left_expr = F.col(left_column)
+        right_expr = F.col(right_column)
+
+        if operator == ">=":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr < right_expr)
+            )
+
+        elif operator == ">":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr <= right_expr)
+            )
+
+        elif operator == "<=":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr > right_expr)
+            )
+
+        elif operator == "<":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr >= right_expr)
+            )
+
+        elif operator == "==":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr != right_expr)
+            )
+
+        else:
+
+            raise ValueError(
+                f"Unsupported domain rule operator: {operator}"
+            )
+
+        result_df = add_reason(
+            result_df,
+            invalid_condition,
+            reason,
+        )
+
+    # ---------------------------------------------------------
+    # Sum relationships
+    # Example:
+    # voter_total =
+    # male_voters + female_voters + other_voters
+    # ---------------------------------------------------------
+
+    for rule in domain_rules.get("sum_relationships", []):
+
+        target_column = rule["target"]
+        source_columns = rule["columns"]
+        reason = rule["reason"]
+
+        required_columns = [target_column] + source_columns
+
+        if any(
+            column not in result_df.columns
+            for column in required_columns
+        ):
+            continue
+
+        target_expr = F.col(target_column)
+
+        source_expr = None
+
+        for column in source_columns:
+
+            if source_expr is None:
+
+                source_expr = F.col(column)
+
+            else:
+
+                source_expr = source_expr + F.col(column)
+
+        all_values_present = target_expr.isNotNull()
+
+        for column in source_columns:
+
+            all_values_present = (
+                all_values_present
+                & F.col(column).isNotNull()
+            )
+
+        invalid_condition = (
+            all_values_present
+            & (target_expr != source_expr)
+        )
+
+        result_df = add_reason(
+            result_df,
+            invalid_condition,
+            reason,
+        )
+
+    # ---------------------------------------------------------
+    # Arithmetic relationships
+    # Example:
+    # net_change =
+    # new_registrations - deletions
+    # ---------------------------------------------------------
+
+    for rule in domain_rules.get("arithmetic_relationships", []):
+
+        target_column = rule["target"]
+        left_column = rule["left"]
+        operator = rule["operator"]
+        right_column = rule["right"]
+        reason = rule["reason"]
+
+        required_columns = [
+            target_column,
+            left_column,
+            right_column,
+        ]
+
+        if any(
+            column not in result_df.columns
+            for column in required_columns
+        ):
+            continue
+
+        target_expr = F.col(target_column)
+        left_expr = F.col(left_column)
+        right_expr = F.col(right_column)
+
+        all_values_present = (
+            target_expr.isNotNull()
+            & left_expr.isNotNull()
+            & right_expr.isNotNull()
+        )
+
+        if operator == "-":
+
+            expected_expr = left_expr - right_expr
+
+        elif operator == "+":
+
+            expected_expr = left_expr + right_expr
+
+        else:
+
+            raise ValueError(
+                f"Unsupported arithmetic relationship operator: {operator}"
+            )
+
+        invalid_condition = (
+            all_values_present
+            & (target_expr != expected_expr)
+        )
+
+        result_df = add_reason(
+            result_df,
+            invalid_condition,
+            reason,
+        )
+
+    return result_df
+
 
 def add_duplicate_key_reason(
     df: DataFrame,
@@ -305,7 +517,12 @@ def add_duplicate_key_reason(
     )
 
 
-def validate_types(df: DataFrame, schema_config: dict[str, Any]) -> tuple[DataFrame, DataFrame]:
+def validate_types(
+    df: DataFrame,
+    schema_config: dict[str, Any],
+    domain_rules: dict[str, Any] | None = None,
+) -> tuple[DataFrame, DataFrame]:
+    
     checked_df = df.withColumn(REASONS_COL, F.array().cast("array<string>"))
 
     for column_config in schema_config.get("columns", []):
@@ -365,11 +582,25 @@ def validate_types(df: DataFrame, schema_config: dict[str, Any]) -> tuple[DataFr
                 f"{column_name}_exceeds_length_{max_length}",
             )
 
-    checked_df = add_duplicate_key_reason(checked_df, schema_config.get("business_keys", []))
-    checked_df = checked_df.withColumn("is_quality_valid", F.size(F.col(REASONS_COL)) == 0)
+    checked_df = add_duplicate_key_reason(
+        checked_df,
+        schema_config.get("business_keys", []),
+    )
+
+    if domain_rules:
+        checked_df = add_domain_rules(
+            checked_df,
+            domain_rules,
+        )
+
+    checked_df = checked_df.withColumn(
+        "is_quality_valid",
+        F.size(F.col(REASONS_COL)) == 0,
+    )
 
     valid_df = checked_df.filter(F.col("is_quality_valid"))
     invalid_df = checked_df.filter(~F.col("is_quality_valid"))
+
     return clean_valid_output(valid_df), clean_quarantine_output(invalid_df)
 
 

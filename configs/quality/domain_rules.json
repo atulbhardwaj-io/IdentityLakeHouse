@@ -1,0 +1,36 @@
+{
+  "scheme_master_raw": {
+    "date_relationships": [
+      {
+        "left": "end_date",
+        "operator": ">=",
+        "right": "start_date",
+        "reason": "end_date_before_start_date"
+      }
+    ]
+  },
+
+  "voter_registry_raw": {
+    "sum_relationships": [
+      {
+        "target": "voter_total",
+        "columns": [
+          "male_voters",
+          "female_voters",
+          "other_voters"
+        ],
+        "reason": "voter_total_category_mismatch"
+      }
+    ],
+
+    "arithmetic_relationships": [
+      {
+        "target": "net_change",
+        "left": "new_registrations",
+        "operator": "-",
+        "right": "deletions",
+        "reason": "net_change_mismatch"
+      }
+    ]
+  }
+}
