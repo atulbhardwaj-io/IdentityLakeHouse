@@ -321,6 +321,80 @@ def add_domain_rules(
             reason,
         )
 
+        # ---------------------------------------------------------
+    # Comparison relationships
+    # Example:
+    # aadhaar_available <= voter_total
+    # ---------------------------------------------------------
+
+    for rule in domain_rules.get("comparison_relationships", []):
+
+        left_column = rule["left"]
+        operator = rule["operator"]
+        right_column = rule["right"]
+        reason = rule["reason"]
+
+        if (
+            left_column not in result_df.columns
+            or right_column not in result_df.columns
+        ):
+            continue
+
+        left_expr = F.col(left_column)
+        right_expr = F.col(right_column)
+
+        if operator == "<=":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr > right_expr)
+            )
+
+        elif operator == "<":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr >= right_expr)
+            )
+
+        elif operator == ">=":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr < right_expr)
+            )
+
+        elif operator == ">":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr <= right_expr)
+            )
+
+        elif operator == "==":
+
+            invalid_condition = (
+                left_expr.isNotNull()
+                & right_expr.isNotNull()
+                & (left_expr != right_expr)
+            )
+
+        else:
+
+            raise ValueError(
+                f"Unsupported domain rule operator: {operator}"
+            )
+
+        result_df = add_reason(
+            result_df,
+            invalid_condition,
+            reason,
+        )
+
     # ---------------------------------------------------------
     # Sum relationships
     # Example:
@@ -365,10 +439,42 @@ def add_domain_rules(
                 & F.col(column).isNotNull()
             )
 
-        invalid_condition = (
-            all_values_present
-            & (target_expr != source_expr)
-        )
+        operator = rule.get("operator", "==")
+
+        if operator == "==":
+            invalid_condition = (
+                all_values_present
+                & (target_expr != source_expr)
+            )
+
+        elif operator == "<=":
+            invalid_condition = (
+                all_values_present
+                & (source_expr > target_expr)
+            )
+
+        elif operator == "<":
+            invalid_condition = (
+                all_values_present
+                & (source_expr >= target_expr)
+            )
+
+        elif operator == ">=":
+            invalid_condition = (
+                all_values_present
+                & (source_expr < target_expr)
+            )
+
+        elif operator == ">":
+            invalid_condition = (
+                all_values_present
+                & (source_expr <= target_expr)
+            )
+
+        else:
+            raise ValueError(
+                f"Unsupported sum relationship operator: {operator}"
+            )
 
         result_df = add_reason(
             result_df,

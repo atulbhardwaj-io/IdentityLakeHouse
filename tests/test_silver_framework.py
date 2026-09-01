@@ -200,7 +200,6 @@ class SilverSparkFrameworkTests(unittest.TestCase):
                 .select("validation_reasons")
                 .collect()[0]["validation_reasons"]
             )
-
         except Exception as exc:
             raise unittest.SkipTest(
                 f"Spark action failed in this environment: {exc}"
@@ -359,6 +358,379 @@ class SilverSparkFrameworkTests(unittest.TestCase):
         self.assertIn(
             "net_change_mismatch",
             results["226003"],
+        )
+
+    def test_domain_rules_detect_population_mismatches(self) -> None:
+        from pyspark.sql import functions as F
+
+        test_rows = [
+            (
+                "226001",
+                198000,
+                102000,
+                96000,
+                18000,
+                52000,
+                128000,
+            ),
+            (
+                "226002",
+                198000,
+                110000,
+                96000,
+                18000,
+                52000,
+                128000,
+            ),
+            (
+                "226003",
+                198000,
+                102000,
+                96000,
+                18000,
+                52000,
+                130000,
+            ),
+        ]
+
+        test_df = self.spark.createDataFrame(
+            test_rows,
+            [
+                "pincode",
+                "population_total",
+                "male",
+                "female",
+                "age_0_5",
+                "age_6_17",
+                "age_18_plus",
+            ],
+        ).withColumn(
+            REASONS_COL,
+            F.array().cast("array<string>"),
+        )
+
+        rules = {
+            "sum_relationships": [
+                {
+                    "target": "population_total",
+                    "columns": [
+                        "male",
+                        "female",
+                    ],
+                    "reason": "population_gender_total_mismatch",
+                },
+                {
+                    "target": "population_total",
+                    "columns": [
+                        "age_0_5",
+                        "age_6_17",
+                        "age_18_plus",
+                    ],
+                    "reason": "population_age_total_mismatch",
+                },
+            ],
+        }
+
+        result_df = add_domain_rules(
+            test_df,
+            rules,
+        )
+
+        results = {
+            row["pincode"]: row[REASONS_COL]
+            for row in (
+                result_df
+                .select(
+                    "pincode",
+                    REASONS_COL,
+                )
+                .collect()
+            )
+        }
+
+        # 226001 is completely valid
+        self.assertEqual(
+            results["226001"],
+            [],
+        )
+
+        # 226002:
+        # 110000 + 96000 = 206000,
+        # but population_total = 198000
+        self.assertIn(
+            "population_gender_total_mismatch",
+            results["226002"],
+        )
+
+        # 226003:
+        # 18000 + 52000 + 130000 = 200000,
+        # but population_total = 198000
+        self.assertIn(
+            "population_age_total_mismatch",
+            results["226003"],
+        )
+
+    def test_domain_rules_detect_aadhaar_voter_link_mismatches(self) -> None:
+        from pyspark.sql import functions as F
+
+        test_rows = [
+            (
+                "226001",
+                25000,
+                24000,
+                23000,
+                850,
+                150,
+            ),
+            (
+                "226002",
+                25000,
+                26000,
+                23000,
+                850,
+                150,
+            ),
+            (
+                "226003",
+                25000,
+                24000,
+                25000,
+                850,
+                150,
+            ),
+            (
+                "226004",
+                25000,
+                24000,
+                23000,
+                1000,
+                150,
+            ),
+        ]
+
+        test_df = self.spark.createDataFrame(
+            test_rows,
+            [
+                "pincode",
+                "voter_total",
+                "aadhaar_available",
+                "aadhaar_voter_linked",
+                "linkage_pending",
+                "linkage_rejected",
+            ],
+        ).withColumn(
+            REASONS_COL,
+            F.array().cast("array<string>"),
+        )
+
+        rules = {
+            "comparison_relationships": [
+                {
+                    "left": "aadhaar_available",
+                    "operator": "<=",
+                    "right": "voter_total",
+                    "reason": "aadhaar_available_exceeds_voter_total",
+                },
+                {
+                    "left": "aadhaar_voter_linked",
+                    "operator": "<=",
+                    "right": "aadhaar_available",
+                    "reason": "linked_exceeds_aadhaar_available",
+                },
+            ],
+            "sum_relationships": [
+                {
+                    "target": "aadhaar_available",
+                    "columns": [
+                        "aadhaar_voter_linked",
+                        "linkage_pending",
+                        "linkage_rejected",
+                    ],
+                    "reason": "linkage_status_count_exceeds_available",
+                }
+            ],
+        }
+
+        result_df = add_domain_rules(
+            test_df,
+            rules,
+        )
+
+        results = {
+            row["pincode"]: row[REASONS_COL]
+            for row in (
+                result_df
+                .select(
+                    "pincode",
+                    REASONS_COL,
+                )
+                .collect()
+            )
+        }
+
+        # 226001 is completely valid
+        self.assertEqual(
+            results["226001"],
+            [],
+        )
+
+        # 226002:
+        # aadhaar_available = 26000 > voter_total = 25000
+        self.assertIn(
+            "aadhaar_available_exceeds_voter_total",
+            results["226002"],
+        )
+
+        # 226003:
+        # aadhaar_voter_linked = 25000 > aadhaar_available = 24000
+        self.assertIn(
+            "linked_exceeds_aadhaar_available",
+            results["226003"],
+        )
+
+        # 226004:
+        # 23000 + 1000 + 150 = 24150,
+        # but aadhaar_available = 24000
+        self.assertIn(
+            "linkage_status_count_exceeds_available",
+            results["226004"],
+        )
+    def test_domain_rules_detect_scheme_beneficiary_mismatches(self) -> None:
+        from pyspark.sql import functions as F
+
+        test_rows = [
+            (
+                "226001",
+                "2026-04-01",
+                "2027-03-31",
+                150,
+                132,
+                18,
+                125,
+            ),
+            (
+                "226002",
+                "2026-04-01",
+                "2027-03-31",
+                140,
+                130,
+                20,
+                120,
+            ),
+            (
+                "226003",
+                "2026-04-01",
+                "2027-03-31",
+                150,
+                132,
+                18,
+                140,
+            ),
+            (
+                "226004",
+                "2026-04-01",
+                "2026-03-31",
+                150,
+                132,
+                18,
+                125,
+            ),
+        ]
+
+        test_df = self.spark.createDataFrame(
+            test_rows,
+            [
+                "pincode",
+                "start_date",
+                "end_date",
+                "applications_received",
+                "beneficiaries_approved",
+                "beneficiaries_rejected",
+                "beneficiaries_disbursed",
+            ],
+        ).withColumn(
+            "start_date",
+            F.to_date(F.col("start_date")),
+        ).withColumn(
+            "end_date",
+            F.to_date(F.col("end_date")),
+        ).withColumn(
+            REASONS_COL,
+            F.array().cast("array<string>"),
+        )
+
+        rules = {
+            "date_relationships": [
+                {
+                    "left": "end_date",
+                    "operator": ">=",
+                    "right": "start_date",
+                    "reason": "end_date_before_start_date",
+                }
+            ],
+            "sum_relationships": [
+                {
+                    "target": "applications_received",
+                    "columns": [
+                        "beneficiaries_approved",
+                        "beneficiaries_rejected",
+                    ],
+                    "operator": "<=",
+                    "reason": "beneficiary_decision_count_exceeds_applications",
+                }
+            ],
+            "comparison_relationships": [
+                {
+                    "left": "beneficiaries_disbursed",
+                    "operator": "<=",
+                    "right": "beneficiaries_approved",
+                    "reason": "disbursed_exceeds_approved",
+                }
+            ],
+        }
+
+        result_df = add_domain_rules(
+            test_df,
+            rules,
+        )
+
+        results = {
+            row["pincode"]: row[REASONS_COL]
+            for row in (
+                result_df
+                .select(
+                    "pincode",
+                    REASONS_COL,
+                )
+                .collect()
+            )
+        }
+
+        # 226001 is completely valid
+        self.assertEqual(
+            results["226001"],
+            [],
+        )
+
+        # 226002:
+        # 130 + 20 = 150 > 140
+        self.assertIn(
+            "beneficiary_decision_count_exceeds_applications",
+            results["226002"],
+        )
+
+        # 226003:
+        # 140 > 132
+        self.assertIn(
+            "disbursed_exceeds_approved",
+            results["226003"],
+        )
+
+        # 226004:
+        # 31-03-2026 < 01-04-2026
+        self.assertIn(
+            "end_date_before_start_date",
+            results["226004"],
         )
 
 
