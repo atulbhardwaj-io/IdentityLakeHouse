@@ -32,5 +32,88 @@
         "reason": "net_change_mismatch"
       }
     ]
+  },
+
+  "population_raw": {
+    "sum_relationships": [
+      {
+        "target": "population_total",
+        "columns": [
+          "male",
+          "female"
+        ],
+        "reason": "population_gender_total_mismatch"
+      },
+      {
+        "target": "population_total",
+        "columns": [
+          "age_0_5",
+          "age_6_17",
+          "age_18_plus"
+        ],
+        "reason": "population_age_total_mismatch"
+      }
+    ]
+  },
+
+  "aadhaar_voter_link_raw": {
+    "comparison_relationships": [
+      {
+        "left": "aadhaar_available",
+        "operator": "<=",
+        "right": "voter_total",
+        "reason": "aadhaar_available_exceeds_voter_total"
+      },
+      {
+        "left": "aadhaar_voter_linked",
+        "operator": "<=",
+        "right": "aadhaar_available",
+        "reason": "linked_exceeds_aadhaar_available"
+      }
+    ],
+
+    "sum_relationships": [
+      {
+        "target": "aadhaar_available",
+        "columns": [
+          "aadhaar_voter_linked",
+          "linkage_pending",
+          "linkage_rejected"
+        ],
+        "reason": "linkage_status_count_exceeds_available"
+      }
+    ]
+  },
+
+  "scheme_beneficiary_raw": {
+    "date_relationships": [
+      {
+        "left": "end_date",
+        "operator": ">=",
+        "right": "start_date",
+        "reason": "end_date_before_start_date"
+      }
+    ],
+
+    "sum_relationships": [
+      {
+        "target": "applications_received",
+        "columns": [
+          "beneficiaries_approved",
+          "beneficiaries_rejected"
+        ],
+        "operator": "<=",
+        "reason": "beneficiary_decision_count_exceeds_applications"
+      }
+    ],
+
+    "comparison_relationships": [
+      {
+        "left": "beneficiaries_disbursed",
+        "operator": "<=",
+        "right": "beneficiaries_approved",
+        "reason": "disbursed_exceeds_approved"
+      }
+    ]
   }
 }
