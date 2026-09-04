@@ -15,18 +15,27 @@ from silver_framework import (
     RECONCILIATION_LOG_PATH,
     append_reconciliation_log,
     ensure_delta_schema_compatible,
+    load_domain_rules,
     load_schema_config,
     normalize_schema,
-    load_domain_rules,
     validate_types,
     write_quarantine,
 )
 
 
 DEFAULT_TABLES = ["enrolment", "demographic", "biometric"]
+
 SPARK_WAREHOUSE_DIR = "/app/spark-warehouse"
-HIVE_METASTORE_URL = "jdbc:derby:;databaseName=/app/metastore_db;create=true"
-SILVER_CONTROL_PATH = "/app/scripts/silver_layer/_control/processed_bronze_batches"
+
+HIVE_METASTORE_URL = (
+    "jdbc:derby:;databaseName=/app/metastore_db;create=true"
+)
+
+SILVER_CONTROL_PATH = (
+    "/app/scripts/silver_layer/_control/processed_bronze_batches"
+)
+
+
 PARTITION_COLS_BY_TABLE = {
     "aadhaar_voter_link_raw": ["partition_year", "partition_month"],
     "biometric": ["partition_year", "partition_month"],
@@ -38,6 +47,7 @@ PARTITION_COLS_BY_TABLE = {
     "scheme_master_raw": ["active_flag"],
     "voter_registry_raw": ["partition_year", "partition_month"],
 }
+
 
 SILVER_CONTROL_SCHEMA = StructType(
     [
@@ -54,13 +64,23 @@ SILVER_CONTROL_SCHEMA = StructType(
 
 def build_spark(app_name: str, master: str) -> SparkSession:
     return (
-        SparkSession.builder.appName(app_name)
+        SparkSession.builder
+        .appName(app_name)
         .master(master)
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+        .config(
+            "spark.sql.extensions",
+            "io.delta.sql.DeltaSparkSessionExtension",
+        )
+        .config(
+            "spark.sql.catalog.spark_catalog",
+            "org.apache.spark.sql.delta.catalog.DeltaCatalog",
+        )
         .config("spark.sql.catalogImplementation", "hive")
         .config("spark.sql.warehouse.dir", SPARK_WAREHOUSE_DIR)
-        .config("javax.jdo.option.ConnectionURL", HIVE_METASTORE_URL)
+        .config(
+            "javax.jdo.option.ConnectionURL",
+            HIVE_METASTORE_URL,
+        )
         .enableHiveSupport()
         .getOrCreate()
     )
@@ -70,162 +90,289 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Copy Bronze Delta tables into Silver Delta tables."
     )
+
     parser.add_argument(
         "--master",
         default="spark://spark-master:7077",
         help="Spark master URL.",
     )
+
     parser.add_argument(
         "--bronze-root",
         default="/app/scripts/bronze_layer",
         help="Bronze Delta root folder.",
     )
+
     parser.add_argument(
         "--silver-root",
         default="/app/scripts/silver_layer",
         help="Silver Delta root folder.",
     )
+
     parser.add_argument(
         "--tables",
         nargs="+",
         default=DEFAULT_TABLES,
         help="Bronze table names to copy, or 'all'.",
     )
+
     parser.add_argument(
         "--mode",
         choices=["overwrite", "append"],
         default="append",
         help="Write mode for Silver Delta output.",
     )
+
     parser.add_argument(
         "--load-type",
         choices=["incremental", "full"],
         default="incremental",
-        help="incremental processes only new bronze_batch_id values; full copies the selected Bronze table.",
+        help=(
+            "incremental processes only new bronze_batch_id values; "
+            "full copies the selected Bronze table."
+        ),
     )
+
     parser.add_argument(
         "--register",
         action="store_true",
         help="Register output tables in Spark catalog as silver.<table>_valid.",
     )
+
     parser.add_argument(
         "--run-id",
         default="manual_run",
         help="Pipeline run id to stamp into Silver data.",
     )
+
     parser.add_argument(
         "--schema-config-root",
         default=DEFAULT_SCHEMA_CONFIG_ROOT,
         help="Folder containing <table_name>_schema.json Silver schema configs.",
     )
+
     parser.add_argument(
         "--quarantine-root",
         default=DEFAULT_QUARANTINE_ROOT,
         help="Root folder for invalid Silver quarantine Delta tables.",
     )
+
     parser.add_argument(
         "--reconciliation-path",
         default=RECONCILIATION_LOG_PATH,
         help="Delta path for silver_control.reconciliation_log.",
     )
+
     return parser.parse_args()
 
 
 def list_delta_dirs(path: Path) -> list[str]:
     if not path.exists():
         return []
+
     names: list[str] = []
+
     for child in path.iterdir():
         if child.is_dir() and (child / "_delta_log").exists():
             names.append(child.name)
+
     return sorted(names)
 
 
-def resolve_tables(requested: list[str], bronze_root: Path) -> list[str]:
+def resolve_tables(
+    requested: list[str],
+    bronze_root: Path,
+) -> list[str]:
+
     if "all" in requested:
         return list_delta_dirs(bronze_root)
+
     return requested
 
 
-def resolve_partition_cols(table_name: str, columns: list[str]) -> list[str]:
-    requested_partition_cols = PARTITION_COLS_BY_TABLE.get(table_name, [])
-    return [col_name for col_name in requested_partition_cols if col_name in columns]
+def resolve_partition_cols(
+    table_name: str,
+    columns: list[str],
+) -> list[str]:
+
+    requested_partition_cols = PARTITION_COLS_BY_TABLE.get(
+        table_name,
+        [],
+    )
+
+    return [
+        col_name
+        for col_name in requested_partition_cols
+        if col_name in columns
+    ]
 
 
 def delta_path_exists(path: str) -> bool:
     return (Path(path) / "_delta_log").exists()
 
 
-def register_control_table(spark: SparkSession) -> None:
-    spark.sql("CREATE DATABASE IF NOT EXISTS silver_control")
+def register_control_table(
+    spark: SparkSession,
+) -> None:
+
     spark.sql(
-        "CREATE TABLE IF NOT EXISTS silver_control.processed_bronze_batches "
+        "CREATE DATABASE IF NOT EXISTS silver_control"
+    )
+
+    spark.sql(
+        "CREATE TABLE IF NOT EXISTS "
+        "silver_control.processed_bronze_batches "
         f"USING DELTA LOCATION '{SILVER_CONTROL_PATH}'"
     )
-    print("[REGISTERED] silver_control.processed_bronze_batches")
+
+    print(
+        "[REGISTERED] "
+        "silver_control.processed_bronze_batches"
+    )
 
 
-def ensure_control_table(spark: SparkSession) -> None:
+def ensure_control_table(
+    spark: SparkSession,
+) -> None:
+
     if not delta_path_exists(SILVER_CONTROL_PATH):
-        empty_control_df = spark.createDataFrame([], SILVER_CONTROL_SCHEMA)
-        empty_control_df.write.format("delta").mode("overwrite").save(SILVER_CONTROL_PATH)
+
+        empty_control_df = spark.createDataFrame(
+            [],
+            SILVER_CONTROL_SCHEMA,
+        )
+
+        (
+            empty_control_df.write
+            .format("delta")
+            .mode("overwrite")
+            .save(SILVER_CONTROL_PATH)
+        )
 
     register_control_table(spark)
 
 
-def get_processed_batch_ids(spark: SparkSession, table_name: str) -> Set[str]:
+def get_processed_batch_ids(
+    spark: SparkSession,
+    table_name: str,
+) -> Set[str]:
+
     ensure_control_table(spark)
+
     rows = (
-        spark.read.format("delta")
+        spark.read
+        .format("delta")
         .load(SILVER_CONTROL_PATH)
-        .filter((F.col("table_name") == table_name) & (F.col("status") == "SUCCESS"))
+        .filter(
+            (F.col("table_name") == table_name)
+            & (F.col("status") == "SUCCESS")
+        )
         .select("bronze_batch_id")
         .distinct()
         .collect()
     )
-    return {row["bronze_batch_id"] for row in rows}
+
+    return {
+        row["bronze_batch_id"]
+        for row in rows
+    }
 
 
-def filter_incremental_rows(spark: SparkSession, df, table_name: str):
+def filter_incremental_rows(
+    spark: SparkSession,
+    df,
+    table_name: str,
+):
+
     if "bronze_batch_id" not in df.columns:
         raise ValueError(
-            f"Incremental Silver load requires bronze_batch_id in Bronze table: {table_name}"
+            "Incremental Silver load requires "
+            f"bronze_batch_id in Bronze table: {table_name}"
         )
 
-    processed_batch_ids = get_processed_batch_ids(spark, table_name)
+    processed_batch_ids = get_processed_batch_ids(
+        spark,
+        table_name,
+    )
+
     if not processed_batch_ids:
         return df
 
-    return df.filter(~F.col("bronze_batch_id").isin(sorted(processed_batch_ids)))
+    return df.filter(
+        ~F.col("bronze_batch_id").isin(
+            sorted(processed_batch_ids)
+        )
+    )
 
 
-def append_control_rows(spark: SparkSession, input_df, valid_df, table_name: str, run_id: str) -> None:
+def append_control_rows(
+    spark: SparkSession,
+    input_df,
+    valid_df,
+    table_name: str,
+    run_id: str,
+) -> None:
+
     ensure_control_table(spark)
 
     input_counts = (
-        input_df.groupBy("bronze_batch_id")
+        input_df
+        .groupBy("bronze_batch_id")
         .count()
         .select(
-            F.col("bronze_batch_id").cast("string").alias("bronze_batch_id"),
-            F.col("count").cast("long").alias("input_rows"),
+            F.col("bronze_batch_id")
+            .cast("string")
+            .alias("bronze_batch_id"),
+
+            F.col("count")
+            .cast("long")
+            .alias("input_rows"),
         )
     )
+
     output_counts = (
-        valid_df.groupBy("bronze_batch_id")
+        valid_df
+        .groupBy("bronze_batch_id")
         .count()
         .select(
-            F.col("bronze_batch_id").cast("string").alias("bronze_batch_id"),
-            F.col("count").cast("long").alias("output_rows"),
+            F.col("bronze_batch_id")
+            .cast("string")
+            .alias("bronze_batch_id"),
+
+            F.col("count")
+            .cast("long")
+            .alias("output_rows"),
         )
     )
 
     control_df = (
-        input_counts.join(output_counts, on="bronze_batch_id", how="left")
-        .fillna({"output_rows": 0})
-        .withColumn("table_name", F.lit(table_name))
-        .withColumn("processed_ts", F.current_timestamp())
-        .withColumn("silver_run_id", F.lit(run_id))
-        .withColumn("status", F.lit("SUCCESS"))
+        input_counts
+        .join(
+            output_counts,
+            on="bronze_batch_id",
+            how="left",
+        )
+        .fillna(
+            {
+                "output_rows": 0,
+            }
+        )
+        .withColumn(
+            "table_name",
+            F.lit(table_name),
+        )
+        .withColumn(
+            "processed_ts",
+            F.current_timestamp(),
+        )
+        .withColumn(
+            "silver_run_id",
+            F.lit(run_id),
+        )
+        .withColumn(
+            "status",
+            F.lit("SUCCESS"),
+        )
         .select(
             "table_name",
             "bronze_batch_id",
@@ -237,40 +384,81 @@ def append_control_rows(spark: SparkSession, input_df, valid_df, table_name: str
         )
     )
 
-    control_df.write.format("delta").mode("append").save(SILVER_CONTROL_PATH)
-    print(f"[CONTROL] Recorded processed Bronze batches for {table_name}")
+    (
+        control_df.write
+        .format("delta")
+        .mode("append")
+        .save(SILVER_CONTROL_PATH)
+    )
+
+    print(
+        f"[CONTROL] Recorded processed Bronze batches "
+        f"for {table_name}"
+    )
 
 
-def normalize_partition_cols(df, partition_cols: list[str]):
+def normalize_partition_cols(
+    df,
+    partition_cols: list[str],
+):
+
     normalized_df = df
 
-    if "partition_year" in partition_cols or "partition_month" in partition_cols:
+    if (
+        "partition_year" in partition_cols
+        or "partition_month" in partition_cols
+    ):
+
         if "date" in normalized_df.columns:
+
             normalized_df = normalized_df.withColumn(
                 "date",
                 F.coalesce(
-                    F.to_date(F.col("date"), "dd-MM-yyyy"),
-                    F.to_date(F.col("date"), "yyyy-MM-dd"),
+                    F.to_date(
+                        F.col("date"),
+                        "dd-MM-yyyy",
+                    ),
+                    F.to_date(
+                        F.col("date"),
+                        "yyyy-MM-dd",
+                    ),
                     F.col("date").cast("date"),
                 ),
             )
 
             if "partition_year" in partition_cols:
-                normalized_df = normalized_df.withColumn("partition_year", F.year(F.col("date")))
+                normalized_df = normalized_df.withColumn(
+                    "partition_year",
+                    F.year(F.col("date")),
+                )
 
             if "partition_month" in partition_cols:
-                normalized_df = normalized_df.withColumn("partition_month", F.month(F.col("date")))
+                normalized_df = normalized_df.withColumn(
+                    "partition_month",
+                    F.month(F.col("date")),
+                )
 
     for col_name in partition_cols:
+
         if col_name not in normalized_df.columns:
             continue
 
-        if col_name.endswith("date") or col_name == "date":
+        if (
+            col_name.endswith("date")
+            or col_name == "date"
+        ):
+
             normalized_df = normalized_df.withColumn(
                 col_name,
                 F.coalesce(
-                    F.to_date(F.col(col_name), "dd-MM-yyyy"),
-                    F.to_date(F.col(col_name), "yyyy-MM-dd"),
+                    F.to_date(
+                        F.col(col_name),
+                        "dd-MM-yyyy",
+                    ),
+                    F.to_date(
+                        F.col(col_name),
+                        "yyyy-MM-dd",
+                    ),
                     F.col(col_name).cast("date"),
                 ),
             )
@@ -279,72 +467,332 @@ def normalize_partition_cols(df, partition_cols: list[str]):
 
 
 def main() -> None:
+
     args = parse_args()
+
     bronze_root = Path(args.bronze_root)
     silver_root = Path(args.silver_root)
 
-    if args.load_type == "incremental" and args.mode != "append":
-        raise ValueError("Incremental Silver load requires --mode append.")
+    # ---------------------------------------------------------
+    # Validate command-line configuration
+    # ---------------------------------------------------------
 
-    tables = resolve_tables(args.tables, bronze_root)
-    if not tables:
+    if (
+        args.load_type == "incremental"
+        and args.mode != "append"
+    ):
         raise ValueError(
-            f"No tables selected. Check Bronze root and --tables. bronze_root={bronze_root}"
+            "Incremental Silver load requires --mode append."
         )
 
-    spark = build_spark("bronze-to-silver-delta-copy", args.master)
+    tables = resolve_tables(
+        args.tables,
+        bronze_root,
+    )
+
+    if not tables:
+        raise ValueError(
+            "No tables selected. "
+            "Check Bronze root and --tables. "
+            f"bronze_root={bronze_root}"
+        )
+
+    spark = build_spark(
+        "bronze-to-silver-delta-copy",
+        args.master,
+    )
+
     try:
+
         if args.register:
-            spark.sql("CREATE DATABASE IF NOT EXISTS silver")
-            ensure_control_table(spark)
 
-        for table in tables:
-            bronze_path = bronze_root / table
-            if not (bronze_path / "_delta_log").exists():
-                print(f"[SKIP] Not a Delta table: {bronze_path}")
-                continue
-
-            silver_table_name = f"{table}_valid"
-            silver_path = silver_root / silver_table_name
-
-            df = spark.read.format("delta").load(str(bronze_path))
-            if args.load_type == "incremental":
-                df = filter_incremental_rows(spark, df, table)
-
-            input_count = df.count()
-            if input_count == 0:
-                print(f"[SKIP] No new Bronze batches for {table}")
-                continue
-
-            df = df.withColumn("silver_processed_ts", F.current_timestamp()).withColumn(
-                "silver_run_id", F.lit(args.run_id)
+            spark.sql(
+                "CREATE DATABASE IF NOT EXISTS silver"
             )
 
-            schema_config = load_schema_config(table, args.schema_config_root)
+            ensure_control_table(spark)
+
+        # =====================================================
+        # PROCESS EACH TABLE
+        # =====================================================
+
+        for table in tables:
+
+            print("\n" + "=" * 70)
+            print(f"PROCESSING TABLE: {table}")
+            print("=" * 70)
+
+            bronze_path = bronze_root / table
+
+            # -------------------------------------------------
+            # Check Bronze Delta table
+            # -------------------------------------------------
+
+            if not (
+                bronze_path / "_delta_log"
+            ).exists():
+
+                print(
+                    f"[SKIP] Not a Delta table: "
+                    f"{bronze_path}"
+                )
+
+                continue
+
+            silver_table_name = (
+                f"{table}_valid"
+            )
+
+            silver_path = (
+                silver_root / silver_table_name
+            )
+
+            # -------------------------------------------------
+            # Read Bronze
+            # -------------------------------------------------
+
+            df = (
+                spark.read
+                .format("delta")
+                .load(str(bronze_path))
+            )
+
+            print(
+                f"[BRONZE] Loaded: {bronze_path}"
+            )
+
+            # -------------------------------------------------
+            # Incremental filtering
+            # -------------------------------------------------
+
+            if args.load_type == "incremental":
+
+                df = filter_incremental_rows(
+                    spark,
+                    df,
+                    table,
+                )
+
+            # -------------------------------------------------
+            # Input count
+            # -------------------------------------------------
+
+            input_count = df.count()
+
+            print(
+                f"[INPUT] {table}: "
+                f"input_rows={input_count}"
+            )
+
+            if input_count == 0:
+
+                print(
+                    f"[SKIP] No new Bronze batches "
+                    f"for {table}"
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # Add Silver processing metadata
+            # -------------------------------------------------
+
+            df = (
+                df
+                .withColumn(
+                    "silver_processed_ts",
+                    F.current_timestamp(),
+                )
+                .withColumn(
+                    "silver_run_id",
+                    F.lit(args.run_id),
+                )
+            )
+
+            # =================================================
+            # SCHEMA + DOMAIN VALIDATION
+            # =================================================
+
+            schema_config = load_schema_config(
+                table,
+                args.schema_config_root,
+            )
+
             if schema_config:
-                df, schema_report = normalize_schema(df, schema_config, args.run_id)
-                print(f"[SCHEMA] {table}: {json.dumps(schema_report, sort_keys=True)}")
+
+                # ---------------------------------------------
+                # Normalize according to schema contract
+                # ---------------------------------------------
+
+                df, schema_report = normalize_schema(
+                    df,
+                    schema_config,
+                    args.run_id,
+                )
+
+                print(
+                    f"[SCHEMA] {table}: "
+                    f"{json.dumps(schema_report, sort_keys=True)}"
+                )
+
+                # ---------------------------------------------
+                # Load domain rules
+                # ---------------------------------------------
+
                 domain_rules_config = load_domain_rules()
 
-                table_domain_rules = domain_rules_config.get(
-                    schema_config.get("dataset_name"),
-                    {},
+                table_domain_rules = (
+                    domain_rules_config.get(
+                        schema_config.get(
+                            "dataset_name"
+                        ),
+                        {},
+                    )
                 )
+
+                # ---------------------------------------------
+                # IMPORTANT:
+                # validate_types() is called EXACTLY ONCE.
+                # ---------------------------------------------
+
                 valid_df, invalid_df = validate_types(
                     df,
                     schema_config,
                     table_domain_rules,
                 )
+
             else:
-                print(f"[WARN] No schema config found for {table}; using legacy Silver copy behavior.")
-                partition_cols = resolve_partition_cols(table, df.columns)
-                valid_df = normalize_partition_cols(df, partition_cols)
+
+                # ---------------------------------------------
+                # Legacy behavior when no schema config exists
+                # ---------------------------------------------
+
+                print(
+                    f"[WARN] No schema config found "
+                    f"for {table}; "
+                    "using legacy Silver copy behavior."
+                )
+
+                partition_cols = (
+                    resolve_partition_cols(
+                        table,
+                        df.columns,
+                    )
+                )
+
+                valid_df = normalize_partition_cols(
+                    df,
+                    partition_cols,
+                )
+
                 invalid_df = df.limit(0)
+
+            # =================================================
+            # CACHE VALID / INVALID DATAFRAMES
+            # =================================================
 
             valid_df = valid_df.cache()
             invalid_df = invalid_df.cache()
+
             valid_count = valid_df.count()
             invalid_count = invalid_df.count()
+
+            print("\n" + "-" * 70)
+            print(f"[VALIDATION] TABLE: {table}")
+            print(f"[VALIDATION] input_count   = {input_count}")
+            print(f"[VALIDATION] valid_count   = {valid_count}")
+            print(f"[VALIDATION] invalid_count = {invalid_count}")
+            print(
+                "[VALIDATION] total_after_validation = "
+                f"{valid_count + invalid_count}"
+            )
+            print("-" * 70)
+
+            # =================================================
+            # SAFETY CHECK
+            # =================================================
+
+            total_after_validation = (
+                valid_count + invalid_count
+            )
+
+            if total_after_validation != input_count:
+
+                raise ValueError(
+                    f"VALIDATION ROW LOSS DETECTED for {table}: "
+                    f"input={input_count}, "
+                    f"valid={valid_count}, "
+                    f"invalid={invalid_count}, "
+                    f"total_after_validation={total_after_validation}"
+                )
+
+            print(
+                f"[VALIDATION PASS] "
+                f"{input_count} = "
+                f"{valid_count} + {invalid_count}"
+            )
+
+            # =================================================
+            # QUARANTINE INVALID ROWS
+            # =================================================
+
+            if invalid_count > 0:
+
+                write_quarantine(
+                    spark=spark,
+                    invalid_df=invalid_df,
+                    table_name=table,
+                    quarantine_root=args.quarantine_root,
+                    run_id=args.run_id,
+                    mode=args.mode,
+                )
+
+                print(
+                    f"[QUARANTINE] {table}: "
+                    f"invalid_rows={invalid_count}"
+                )
+
+            else:
+
+                print(
+                    f"[QUARANTINE] {table}: "
+                    "no invalid rows"
+                )
+
+            # =================================================
+            # RECONCILIATION
+            # =================================================
+
+            reconciliation_status = (
+                append_reconciliation_log(
+                    spark=spark,
+                    run_id=args.run_id,
+                    dataset_name=table,
+                    bronze_count=input_count,
+                    silver_valid_count=valid_count,
+                    silver_quarantine_count=invalid_count,
+                    reconciliation_path=args.reconciliation_path,
+                )
+            )
+
+            print(
+                f"[RECONCILIATION] {table}: "
+                f"bronze={input_count} | "
+                f"silver_valid={valid_count} | "
+                f"quarantine={invalid_count} | "
+                f"status={reconciliation_status}"
+            )
+
+            if reconciliation_status != "PASS":
+
+                raise ValueError(
+                    f"Silver reconciliation failed "
+                    f"for {table}"
+                )
+
+            # =================================================
+            # ENSURE SILVER DELTA SCHEMA
+            # =================================================
 
             ensure_delta_schema_compatible(
                 spark=spark,
@@ -354,74 +802,135 @@ def main() -> None:
                 mode=args.mode,
             )
 
-            if invalid_count > 0:
-                write_quarantine(
-                    spark=spark,
-                    invalid_df=invalid_df,
-                    table_name=table,
-                    quarantine_root=args.quarantine_root,
-                    run_id=args.run_id,
-                    mode=args.mode,
-                )
-                print(f"[QUARANTINE] {table}: invalid_rows={invalid_count}")
+            # =================================================
+            # WRITE VALID DATA TO SILVER
+            # =================================================
 
-            reconciliation_status = append_reconciliation_log(
-                spark=spark,
-                run_id=args.run_id,
-                dataset_name=table,
-                bronze_count=input_count,
-                silver_valid_count=valid_count,
-                silver_quarantine_count=invalid_count,
-                reconciliation_path=args.reconciliation_path,
+            partition_cols = resolve_partition_cols(
+                table,
+                valid_df.columns,
             )
-            print(
-                f"[RECONCILIATION] {table}: bronze={input_count} | silver_valid={valid_count} | "
-                f"quarantine={invalid_count} | status={reconciliation_status}"
-            )
-            if reconciliation_status != "PASS":
-                raise ValueError(f"Silver reconciliation failed for {table}")
 
-            partition_cols = resolve_partition_cols(table, valid_df.columns)
             writer = (
-                valid_df.write.format("delta")
+                valid_df.write
+                .format("delta")
                 .mode(args.mode)
-                .option("mergeSchema", "true")
+                .option(
+                    "mergeSchema",
+                    "true",
+                )
             )
+
             if args.mode == "overwrite":
-                writer = writer.option("overwriteSchema", "true")
+
+                writer = writer.option(
+                    "overwriteSchema",
+                    "true",
+                )
 
             if partition_cols:
-                writer = writer.partitionBy(*partition_cols)
 
-            writer.save(str(silver_path))
-            append_control_rows(spark, df, valid_df, table, args.run_id)
+                writer = writer.partitionBy(
+                    *partition_cols
+                )
 
-            out_count = spark.read.format("delta").load(str(silver_path)).count()
-            print(
-                f"[OK] {table} -> {silver_table_name} | input_rows={input_count} | "
-                f"valid_rows={valid_count} | quarantined_rows={invalid_count} | "
-                f"silver_total_rows={out_count} | load_type={args.load_type} | path={silver_path}"
+            writer.save(
+                str(silver_path)
             )
+
+            # =================================================
+            # CONTROL TABLE
+            # =================================================
+
+            append_control_rows(
+                spark,
+                df,
+                valid_df,
+                table,
+                args.run_id,
+            )
+
+            # =================================================
+            # FINAL SILVER COUNT
+            # =================================================
+
+            out_count = (
+                spark.read
+                .format("delta")
+                .load(str(silver_path))
+                .count()
+            )
+
+            print("\n" + "=" * 70)
+            print(
+                f"[OK] {table} -> "
+                f"{silver_table_name}"
+            )
+            print(
+                f"[RESULT] input_rows={input_count}"
+            )
+            print(
+                f"[RESULT] valid_rows={valid_count}"
+            )
+            print(
+                f"[RESULT] quarantined_rows={invalid_count}"
+            )
+            print(
+                f"[RESULT] silver_total_rows={out_count}"
+            )
+            print(
+                f"[RESULT] load_type={args.load_type}"
+            )
+            print(
+                f"[RESULT] path={silver_path}"
+            )
+            print("=" * 70)
+
             if partition_cols:
-                print(f"[PARTITIONED BY] {silver_table_name}: {partition_cols}")
+
+                print(
+                    f"[PARTITIONED BY] "
+                    f"{silver_table_name}: "
+                    f"{partition_cols}"
+                )
+
             else:
-                print(f"[PARTITIONED BY] {silver_table_name}: none")
+
+                print(
+                    f"[PARTITIONED BY] "
+                    f"{silver_table_name}: none"
+                )
+
+            # =================================================
+            # REGISTER SILVER TABLE
+            # =================================================
 
             if args.register:
+
                 spark.sql(
-                    f"CREATE TABLE IF NOT EXISTS silver.{silver_table_name} "
-                    f"USING DELTA LOCATION '{str(silver_path).replace(chr(92), '/')}'"
+                    f"CREATE TABLE IF NOT EXISTS "
+                    f"silver.{silver_table_name} "
+                    f"USING DELTA "
+                    f"LOCATION "
+                    f"'{str(silver_path).replace(chr(92), '/')}'"
                 )
-                print(f"[REGISTERED] silver.{silver_table_name}")
+
+                print(
+                    f"[REGISTERED] "
+                    f"silver.{silver_table_name}"
+                )
+
+            # =================================================
+            # RELEASE CACHE
+            # =================================================
 
             valid_df.unpersist()
             invalid_df.unpersist()
+
     finally:
+
         spark.stop()
 
 
 if __name__ == "__main__":
     main()
-
-
-# chnage add 
