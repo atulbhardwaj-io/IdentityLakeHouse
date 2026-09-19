@@ -1,4 +1,4 @@
-# IdentityLakeHouse
+<!-- # IdentityLakeHouse
 
 ## Need - Data-Driven Government
 In today's digital era, governments generate massive amounts of data across departments such as welfare schemes, agriculture, health, education, and public distribution systems. However, this data is often stored in silos, inconsistent in format, incomplete, and difficult to analyze at scale. Without a unified and structured architecture, it becomes challenging to monitor scheme performance, detect inefficiencies, prevent fund leakage, and make evidence-based policy decisions. A data-driven government requires a scalable system that can ingest raw departmental data, ensure quality and transparency, and transform it into reliable insights for better governance, accountability, and citizen-centric decision-making.
@@ -2892,4 +2892,4 @@ In one line:
 
 **Python → pandas → SQL → Spark → Delta Lake → FastAPI → PostgreSQL → Kafka → Power BI → Azure → Databricks → GitHub**
 
-That is the complete tech stack your project uses end-to-end. --> --> --> --> -->
+That is the complete tech stack your project uses end-to-end. --> --> --> --> --> -->
