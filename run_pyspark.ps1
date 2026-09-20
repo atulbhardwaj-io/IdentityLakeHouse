@@ -108,3 +108,23 @@ $pysparkCmd = "/opt/spark/bin/pyspark --master $MasterUrl --packages io.delta:de
 # ============================================================
 
 Invoke-InSparkContainer $pysparkCmd
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
